@@ -284,10 +284,14 @@ body {
   inset: 0;
   background: rgba(0,0,0,0.3);
   z-index: 100;
-  display: flex;
+  display: none;
   align-items: flex-start;
   justify-content: center;
   padding-top: 60px;
+}
+
+.modal-overlay:not([hidden]) {
+  display: flex;
 }
 
 .modal {
