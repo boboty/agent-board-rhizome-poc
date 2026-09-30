@@ -393,7 +393,7 @@ func TestIntegrationBoardWorkflowStaticAndServedHTML(t *testing.T) {
 		t.Fatalf("read static board snapshot: %v", err)
 	}
 	staticHTML := string(staticBytes)
-	assertWorkflowHTML(t, "static snapshot", staticHTML, refs)
+	assertWorkflowHTML(t, "static snapshot", staticHTML, refs, false)
 
 	server := launchIntegrationBoardServer(t, env, "127.0.0.1:0")
 	t.Cleanup(func() { stopIntegrationBoardServer(t, server) })
@@ -412,7 +412,7 @@ func TestIntegrationBoardWorkflowStaticAndServedHTML(t *testing.T) {
 	if pageResponse.StatusCode != http.StatusOK {
 		t.Fatalf("served board page status = %d, want %d", pageResponse.StatusCode, http.StatusOK)
 	}
-	assertWorkflowHTML(t, "served board", string(pageBytes), refs)
+	assertWorkflowHTML(t, "served board", string(pageBytes), refs, true)
 
 	apiResponse, err := client.Get(strings.TrimSuffix(endpoint, "/") + "/api/board")
 	if err != nil {
@@ -435,7 +435,7 @@ func TestIntegrationBoardWorkflowStaticAndServedHTML(t *testing.T) {
 	}
 }
 
-func assertWorkflowHTML(t *testing.T, surface, html string, refs boardWorkflowIssueRefs) {
+func assertWorkflowHTML(t *testing.T, surface, html string, refs boardWorkflowIssueRefs, writable bool) {
 	t.Helper()
 	for _, want := range []string{
 		"Workflow board", "kanban-column", "READY", "IN PROGRESS", "VERIFYING", "RC",
@@ -448,10 +448,22 @@ func assertWorkflowHTML(t *testing.T, surface, html string, refs boardWorkflowIs
 			t.Fatalf("%s is missing %q", surface, want)
 		}
 	}
-	// The board is read-only: the served page legitimately carries a GET search
-	// form, but no write method and no drag/drop affordance.
+	// The offline snapshot must stay a read-only artifact: it serves no routes,
+	// so a write form there could only fail. The served board may carry the
+	// minimal write forms, but never drag/drop affordances.
 	lowered := strings.ToLower(html)
-	for _, forbidden := range []string{"method=\"post\"", "method='post'", "draggable=", "ondrop=", "ondragstart="} {
+	for _, forbidden := range []string{"draggable=", "ondrop=", "ondragstart="} {
+		if strings.Contains(lowered, forbidden) {
+			t.Fatalf("%s contains drag affordance %q", surface, forbidden)
+		}
+	}
+	if writable {
+		if !strings.Contains(lowered, "method=\"post\"") || !strings.Contains(lowered, "csrf_token") {
+			t.Fatalf("%s is missing the write forms", surface)
+		}
+		return
+	}
+	for _, forbidden := range []string{"method=\"post\"", "method='post'", "csrf_token"} {
 		if strings.Contains(lowered, forbidden) {
 			t.Fatalf("%s contains write affordance %q", surface, forbidden)
 		}

@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"fmt"
+	"net/url"
 	"strings"
 	"time"
 
@@ -20,12 +21,58 @@ func renderBoardHTML(result domain.BoardResult) (string, error) {
 }
 
 func renderServedBoardHTML(result domain.BoardResult) (string, error) {
-	return renderServedBoardHTMLWithSearchState(result, servedBoardSearchState{})
+	return renderServedBoardPage(result, boardPageState{})
 }
 
 func renderServedBoardHTMLWithSearchState(result domain.BoardResult, state servedBoardSearchState) (string, error) {
+	return renderServedBoardPage(result, boardPageState{Search: state})
+}
+
+func renderServedBoardPage(result domain.BoardResult, state boardPageState) (string, error) {
 	vm := newBoardServedPageViewModel(result, state)
 	return renderBoardTemplate("boardServedPage", vm)
+}
+
+// boardPageState is the non-board-input state one served page render needs: the
+// search panel state, the write banner a POST/redirect/GET cycle asked for, and
+// the CSRF token every write form must embed. A read-only board leaves the
+// token empty, and the templates then render no write controls.
+type boardPageState struct {
+	Search    servedBoardSearchState
+	Notice    string
+	ErrorCode string
+	CSRFToken string
+}
+
+// boardPageBanner reads the banner codes a write redirect may carry, accepting
+// only codes this adapter produced.
+func boardPageBanner(requestURL *url.URL) (string, string) {
+	if requestURL == nil {
+		return "", ""
+	}
+	query := requestURL.Query()
+	notice := query.Get("notice")
+	if _, ok := boardNoticeMessages[notice]; !ok {
+		notice = ""
+	}
+	errorCode := query.Get("error")
+	if _, ok := boardErrorMessages[errorCode]; !ok {
+		errorCode = ""
+	}
+	return notice, errorCode
+}
+
+// boardBannerMessage maps a notice or error code onto the sentence the page
+// shows. Error codes win, so a redirect can never show success next to a
+// failure.
+func boardBannerMessage(notice, errorCode string) (string, bool) {
+	if message, ok := boardErrorMessages[errorCode]; ok {
+		return message, true
+	}
+	if message, ok := boardNoticeMessages[notice]; ok {
+		return message, false
+	}
+	return "", false
 }
 
 type servedBoardSearchState struct {
@@ -39,7 +86,11 @@ type servedBoardSearchState struct {
 }
 
 func renderIssueDetailHTML(detail domain.IssueDetail) (string, error) {
-	vm := newIssueDetailPageViewModel(detail)
+	return renderIssueDetailHTMLWithCSRF(detail, "", "", "")
+}
+
+func renderIssueDetailHTMLWithCSRF(detail domain.IssueDetail, csrfToken string, notice string, errorCode string) (string, error) {
+	vm := newIssueDetailPageViewModel(detail, csrfToken, notice, errorCode)
 	return renderBoardTemplate("boardIssueDetailPage", vm)
 }
 

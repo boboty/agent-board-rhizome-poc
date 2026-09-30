@@ -302,7 +302,14 @@ func runCLI(ctx context.Context, cfg *config.Config, stdout, stderr io.Writer, a
 		if bundle == nil || b.BoardService == nil || b.IssueDetailService == nil {
 			return errors.New("board service is not configured")
 		}
-		return runBoardServe(ctx, cfg, stdoutWriter, boardServeService{boardService: b.BoardService, issueDetailService: b.IssueDetailService, searchService: b.SearchService})
+		serveService := boardServeService{boardService: b.BoardService, issueDetailService: b.IssueDetailService, searchService: b.SearchService, commandService: b.BoardCommandService}
+		// Writes are offered only when the command service is really present:
+		// a nil one would render write controls that can only fail.
+		var writeService cliadapter.BoardWriteService
+		if serveService.commandService != nil {
+			writeService = serveService
+		}
+		return runBoardServe(ctx, cfg, stdoutWriter, serveService, writeService)
 	}
 	backupHandler := func(ctx context.Context, output string) (cliadapter.BackupReport, error) {
 		if project == nil {
@@ -603,11 +610,17 @@ func runServeHTTP(ctx context.Context, cfg *config.Config, stderr io.Writer, rou
 	return projectruntime.ServeHTTPServer(ctx, projectruntime.HTTPServerOptions{Address: cfg.HTTPAddress, Logger: logger, Handler: handler})
 }
 
-func runBoardServe(ctx context.Context, cfg *config.Config, stdout io.Writer, boardService interface {
+// boardServeReadService is the served board's read surface.
+type boardServeReadService interface {
 	GetBoard(context.Context) (domain.BoardResult, error)
 	GetIssueDetail(context.Context, string) (domain.IssueDetail, error)
 	Search(context.Context, domain.SearchInput) (domain.SearchPage, error)
-}) error {
+}
+
+// runBoardServe serves the board. writeService may be nil, in which case the
+// process runs the read-only handler exactly as before the write surface
+// existed; a non-nil writeService enables the four POST task routes.
+func runBoardServe(ctx context.Context, cfg *config.Config, stdout io.Writer, boardService boardServeReadService, writeService cliadapter.BoardWriteService) error {
 	if cfg == nil {
 		cfg = &config.Config{}
 	}
@@ -615,7 +628,12 @@ func runBoardServe(ctx context.Context, cfg *config.Config, stdout io.Writer, bo
 		stdout = io.Discard
 	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	handler := cliadapter.NewBoardHTTPHandler(boardService)
+	var handler http.Handler
+	if writeService != nil {
+		handler = cliadapter.NewWritableBoardHTTPHandler(boardService, writeService)
+	} else {
+		handler = cliadapter.NewBoardHTTPHandler(boardService)
+	}
 	return projectruntime.ServeHTTPServer(ctx, projectruntime.HTTPServerOptions{
 		Address: cfg.HTTPAddress,
 		Logger:  logger,
@@ -630,6 +648,37 @@ type boardServeService struct {
 	boardService       *application.BoardService
 	issueDetailService *application.IssueDetailService
 	searchService      *application.SearchService
+	commandService     *application.BoardCommandService
+}
+
+// The served board writes only through these four use cases; there is no
+// generic MCP/CLI forwarding path.
+func (service boardServeService) CreateTask(ctx context.Context, input application.CreateBoardTaskInput) (application.CreateBoardTaskResult, error) {
+	if service.commandService == nil {
+		return application.CreateBoardTaskResult{}, errors.New("board write service is not configured")
+	}
+	return service.commandService.CreateTask(ctx, input)
+}
+
+func (service boardServeService) UpdateTask(ctx context.Context, input application.UpdateBoardTaskInput) (application.UpdateBoardTaskResult, error) {
+	if service.commandService == nil {
+		return application.UpdateBoardTaskResult{}, errors.New("board write service is not configured")
+	}
+	return service.commandService.UpdateTask(ctx, input)
+}
+
+func (service boardServeService) MoveTaskToReady(ctx context.Context, input application.MoveBoardTaskToReadyInput) (application.UpdateBoardTaskResult, error) {
+	if service.commandService == nil {
+		return application.UpdateBoardTaskResult{}, errors.New("board write service is not configured")
+	}
+	return service.commandService.MoveTaskToReady(ctx, input)
+}
+
+func (service boardServeService) MoveReadyTask(ctx context.Context, input application.MoveBoardReadyTaskInput) (application.MoveBoardReadyTaskResult, error) {
+	if service.commandService == nil {
+		return application.MoveBoardReadyTaskResult{}, errors.New("board write service is not configured")
+	}
+	return service.commandService.MoveReadyTask(ctx, input)
 }
 
 func (service boardServeService) GetBoard(ctx context.Context) (domain.BoardResult, error) {

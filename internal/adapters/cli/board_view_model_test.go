@@ -125,7 +125,7 @@ func TestBoardServedViewModelShowsTruncationMarkerWhenTruncated(t *testing.T) {
 		},
 	}
 
-	vm := newBoardServedPageViewModel(result, servedBoardSearchState{})
+	vm := newBoardServedPageViewModel(result, boardPageState{})
 
 	// Asserted on the rendered summary the template actually prints, not on a
 	// field, so this fails if the marker stops reaching the page.

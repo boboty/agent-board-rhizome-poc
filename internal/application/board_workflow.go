@@ -225,7 +225,8 @@ func (service *BoardService) buildBoardWorkflow(ctx context.Context, sources boa
 		if column == "" {
 			unprojected = append(unprojected, domain.BoardWorkflowUnprojected{
 				IssueID: issue.ID, IssueDisplayID: issue.DisplayID, Title: issue.Title,
-				StoredStatus: issue.Status, Reason: reason, Detail: domain.BoardWorkflowUnprojectedDetail(reason),
+				StoredStatus: issue.Status, Version: issue.Version,
+				Reason: reason, Detail: domain.BoardWorkflowUnprojectedDetail(reason),
 			})
 			continue
 		}
@@ -244,7 +245,8 @@ func (service *BoardService) buildBoardWorkflow(ctx context.Context, sources boa
 func buildBoardWorkflowCard(issue domain.IssueProjection, column domain.BoardWorkflowColumn, attempt *domain.ActiveAttemptSummary, review *domain.ReviewRequest, rounds int) domain.BoardWorkflowCard {
 	card := domain.BoardWorkflowCard{
 		Column: column, IssueID: issue.ID, IssueDisplayID: issue.DisplayID, Title: issue.Title,
-		Type: issue.Type, Priority: issue.Priority, StoredStatus: issue.Status, IsClaimable: issue.IsClaimable,
+		Type: issue.Type, Priority: issue.Priority, StoredStatus: issue.Status,
+		Version: issue.Version, IsClaimable: issue.IsClaimable,
 	}
 	if column == domain.BoardWorkflowColumnReady {
 		card.ReadyRank = boardInt64Pointer(issue.ReadyRank)

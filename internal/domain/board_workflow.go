@@ -114,6 +114,10 @@ type BoardWorkflowCard struct {
 	Type           Type                `json:"type"`
 	Priority       Priority            `json:"priority"`
 	StoredStatus   Status              `json:"stored_status"`
+	// Version is the issue's optimistic-concurrency version at read time, so a
+	// served write form can round-trip it as expected_version instead of
+	// re-reading the issue before every edit.
+	Version int64 `json:"version"`
 
 	// READY rank is the issue's optional explicit queue position. It is
 	// meaningful only in the READY column and omitted elsewhere.
@@ -162,8 +166,11 @@ type BoardWorkflowUnprojected struct {
 	IssueDisplayID string `json:"issue_display_id"`
 	Title          string `json:"title"`
 	StoredStatus   Status `json:"stored_status"`
-	Reason         string `json:"reason"`
-	Detail         string `json:"detail"`
+	// Version is the issue's optimistic-concurrency version at read time, for
+	// the same reason BoardWorkflowCard carries it.
+	Version int64  `json:"version"`
+	Reason  string `json:"reason"`
+	Detail  string `json:"detail"`
 }
 
 // BoardWorkflowColumnSummary is one column's heading and card count, always
@@ -320,16 +327,10 @@ func NewBoardWorkflowProjection(cards []BoardWorkflowCard, unprojected []BoardWo
 		if leftRank != rightRank {
 			return leftRank < rightRank
 		}
+		// The READY column uses the one shared queue comparator (ready_queue.go),
+		// so display order and reorder planning can never disagree.
 		if sorted[i].Column == BoardWorkflowColumnReady {
-			left, right := sorted[i].ReadyRank, sorted[j].ReadyRank
-			switch {
-			case left == nil && right != nil:
-				return false
-			case left != nil && right == nil:
-				return true
-			case left != nil && right != nil && *left != *right:
-				return *left < *right
-			}
+			return compareReadyCards(sorted[i], sorted[j]) < 0
 		}
 		leftPriority, rightPriority := priorityOrder(sorted[i].Priority), priorityOrder(sorted[j].Priority)
 		if leftPriority != rightPriority {

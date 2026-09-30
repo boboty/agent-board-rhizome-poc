@@ -37,6 +37,10 @@ type BoardWorkflowCard struct {
 	Type           string `json:"type"`
 	Priority       string `json:"priority"`
 	StoredStatus   string `json:"stored_status"`
+	// Version is the issue's optimistic version, so a client that edits a card
+	// (the served board's forms do) can round-trip expected_version without a
+	// separate read.
+	Version int64 `json:"version"`
 
 	ReadyRank   *int64 `json:"ready_rank,omitempty"`
 	IsClaimable bool   `json:"is_claimable"`
@@ -76,6 +80,7 @@ type BoardWorkflowUnprojected struct {
 	IssueDisplayID string `json:"issue_display_id"`
 	Title          string `json:"title"`
 	StoredStatus   string `json:"stored_status"`
+	Version        int64  `json:"version"`
 	Reason         string `json:"reason"`
 	Detail         string `json:"detail"`
 }
@@ -102,7 +107,7 @@ func boardWorkflowFromDomain(workflow domain.BoardWorkflowProjection) BoardWorkf
 		cards[index] = BoardWorkflowCard{
 			Column: string(card.Column), IssueID: card.IssueID, IssueDisplayID: card.IssueDisplayID,
 			Title: card.Title, Type: string(card.Type), Priority: string(card.Priority),
-			StoredStatus: string(card.StoredStatus), ReadyRank: copyOptionalInt64(card.ReadyRank),
+			StoredStatus: string(card.StoredStatus), Version: card.Version, ReadyRank: copyOptionalInt64(card.ReadyRank),
 			IsClaimable: card.IsClaimable, AttemptID: card.AttemptID, AttemptKind: string(card.AttemptKind),
 			ExecutorLabel: copyOptionalString(card.ExecutorLabel), ExecutorInstanceKey: copyOptionalString(card.ExecutorInstanceKey),
 			ExecutorClient: copyOptionalString(card.ExecutorClient), ExecutorModel: copyOptionalString(card.ExecutorModel),
@@ -122,7 +127,7 @@ func boardWorkflowFromDomain(workflow domain.BoardWorkflowProjection) BoardWorkf
 	for index, item := range workflow.Unprojected {
 		unprojected[index] = BoardWorkflowUnprojected{
 			IssueID: item.IssueID, IssueDisplayID: item.IssueDisplayID, Title: item.Title,
-			StoredStatus: string(item.StoredStatus), Reason: item.Reason, Detail: item.Detail,
+			StoredStatus: string(item.StoredStatus), Version: item.Version, Reason: item.Reason, Detail: item.Detail,
 		}
 	}
 	return BoardWorkflow{

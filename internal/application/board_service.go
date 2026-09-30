@@ -161,6 +161,53 @@ func (service *BoardService) GetBoard(ctx context.Context) (domain.BoardResult, 
 	}, nil
 }
 
+// ReadyQueueSnapshot is the READY column exactly as the board displays it:
+// the cards the workflow projection placed in READY, in display order, plus
+// whether the underlying read was cut at the collection limit.
+type ReadyQueueSnapshot struct {
+	Cards     []domain.BoardWorkflowCard
+	Truncated bool
+}
+
+// ReadyQueue returns the issues currently shown in the READY column, using the
+// same bounded reads and the same placement rules as GetBoard. A reorder that
+// plans from this snapshot can therefore only touch cards the operator
+// actually saw: a stored-ready issue that is displayed as IN PROGRESS (active
+// work attempt) or RC (changes requested) is not part of the queue.
+func (service *BoardService) ReadyQueue(ctx context.Context) (ReadyQueueSnapshot, error) {
+	openStatus := string(domain.ReviewRequestStatusOpen)
+	reviewPage, err := service.reviewService.ListReviewRequests(ctx, ListReviewRequestsInput{
+		Status: &openStatus,
+		Limit:  domain.MaxBoardCollectionLimit,
+	})
+	if err != nil {
+		return ReadyQueueSnapshot{}, err
+	}
+	reviewRequests := make([]domain.ReviewRequest, len(reviewPage.Items))
+	for index, item := range reviewPage.Items {
+		reviewRequests[index] = item.Request
+	}
+	activeAttemptList, err := service.attemptService.ListActiveAttempts(ctx, domain.MaxBoardCollectionLimit)
+	if err != nil {
+		return ReadyQueueSnapshot{}, err
+	}
+	sources, err := service.collectBoardWorkflowSources(ctx, reviewRequests)
+	if err != nil {
+		return ReadyQueueSnapshot{}, err
+	}
+	projection, err := service.buildBoardWorkflow(ctx, sources, activeAttemptList.Items)
+	if err != nil {
+		return ReadyQueueSnapshot{}, err
+	}
+	snapshot := ReadyQueueSnapshot{Truncated: projection.Truncation.Ready}
+	for _, card := range projection.Cards {
+		if card.Column == domain.BoardWorkflowColumnReady {
+			snapshot.Cards = append(snapshot.Cards, card)
+		}
+	}
+	return snapshot, nil
+}
+
 // filterReservationsByActiveAttempts drops any reservation whose owning
 // attempt is not in activeAttempts. resource_reservations.status='active'
 // alone is not sufficient: ListActiveAttempts additionally requires

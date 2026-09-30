@@ -81,9 +81,14 @@
         if (!response.ok) {
           throw new Error("request failed");
         }
-        this.etag = response.headers.get("ETag") || this.etag;
+        const nextETag = response.headers.get("ETag") || this.etag;
         const pageHTML = await this.fetchPageHTML();
-        this.refreshContent(pageHTML);
+        // Only remember the new entity tag once the DOM actually took the new
+        // content. Storing it while a write form has focus would make the next
+        // poll answer 304 and the skipped update would never arrive.
+        if (this.refreshContent(pageHTML)) {
+          this.etag = nextETag;
+        }
         this.clearStale();
         this.backoffMs = 1000;
         this.schedule();
@@ -109,7 +114,7 @@
       const doc = parser.parseFromString(body, "text/html");
       const newMain = doc.querySelector("main[data-board-main]");
       if (!newMain || !this.root) {
-        return;
+        return false;
       }
       const previousOpenDetails = [];
       this.root.querySelectorAll("details[id]").forEach((detail) => {
@@ -119,6 +124,13 @@
       });
       const activeElement = this.documentImpl.activeElement;
       const focusedID = activeElement && activeElement.id ? activeElement.id : "";
+      if (activeElement && typeof activeElement.closest === "function" && activeElement.closest("form[data-board-write-form]")) {
+        // Never replace the page while someone is typing in a write form: the
+        // refresh would silently discard their input mid-edit.
+        this.lastSuccessfulRefreshAt = this.nowImpl();
+        this.renderStaleStatus();
+        return false;
+      }
       const previousScrollY = this.windowImpl.scrollY;
       this.root.innerHTML = newMain.innerHTML;
       this.root.querySelectorAll("details[id]").forEach((detail) => {
@@ -135,6 +147,7 @@
       this.windowImpl.scrollTo(0, previousScrollY);
       this.lastSuccessfulRefreshAt = this.nowImpl();
       this.renderStaleStatus();
+      return true;
     }
 
     markStale(){

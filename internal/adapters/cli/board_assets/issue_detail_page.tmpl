@@ -11,6 +11,26 @@
 <p><a href="{{.ReturnHref}}">Return to board</a></p>
 <h1>{{.IssueHeading}}</h1>
 <p class="generated">{{.StatusLine}}</p>
+{{if .HasBanner}}<p class="board-banner{{if .BannerIsError}} board-banner-error{{end}}" role="status">{{.BannerMessage}}</p>{{end}}
+{{if .WritesEnabled}}<section class="board-write">
+<h2>Edit task</h2>
+<form method="post" action="/api/issues/{{.Identifier}}" data-board-write-form>
+<input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+<input type="hidden" name="expected_version" value="{{.EditVersion}}">
+<input type="hidden" name="return" value="/issues/{{.Identifier}}">
+<label>Title <input type="text" name="title" value="{{.EditTitle}}" maxlength="300" required></label>
+<label>Description <textarea name="description" rows="4">{{.EditDescription}}</textarea></label>
+<label>Acceptance criteria <textarea name="acceptance_criteria" rows="4">{{.EditAcceptanceCriteria}}</textarea></label>
+<label>Priority <select name="priority">{{range .Priorities}}<option value="{{.}}"{{if eq . $.EditPriority}} selected{{end}}>{{.}}</option>{{end}}</select></label>
+<button type="submit">Save changes</button>
+</form>
+{{if .CanMoveToReady}}<form method="post" action="/api/issues/{{.Identifier}}/ready" data-board-write-form>
+<input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+<input type="hidden" name="expected_version" value="{{.EditVersion}}">
+<input type="hidden" name="return" value="/issues/{{.Identifier}}">
+<button type="submit">Move to READY</button>
+</form>{{end}}
+</section>{{end}}
 <section>
 <h2>Metadata</h2>
 {{range .Metadata}}<p><strong>{{.Label}}:</strong> {{.Value}}</p>

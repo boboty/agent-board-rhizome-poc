@@ -75,3 +75,46 @@ footer { color: #94a3b8; font-size: 0.8rem; margin-top: 3rem; }
   .kanban-card-title, .kanban-field { color: #e2e8f0; }
   .kanban-priority { background: #1e293b; color: #cbd5e1; }
 }
+
+/* Minimal write surface (AB-4): the Kanban is the primary view, and these
+   controls create, edit, queue, and reorder tasks without becoming a form-heavy
+   admin page. */
+.board-banner {
+  border: 1px solid #86efac;
+  background: #f0fdf4;
+  color: #14532d;
+  border-radius: 6px;
+  padding: 0.5rem 0.75rem;
+}
+.board-banner-error {
+  border-color: #fca5a5;
+  background: #fef2f2;
+  color: #7f1d1d;
+}
+.board-write form,
+.kanban-card form {
+  display: inline-block;
+  margin: 0 0.25rem 0 0;
+}
+.board-write label {
+  display: block;
+  margin: 0.35rem 0;
+}
+.board-write input[type="text"],
+.board-write textarea,
+.board-write select {
+  display: block;
+  width: 100%;
+  max-width: 48rem;
+  font: inherit;
+}
+.board-write button,
+.kanban-card button {
+  font: inherit;
+  cursor: pointer;
+}
+.kanban-actions {
+  margin-top: 0.4rem;
+  display: flex;
+  gap: 0.25rem;
+}

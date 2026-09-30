@@ -21,9 +21,10 @@ type Bundle struct {
 	WorkflowPolicyService *WorkflowPolicyService
 
 	// CLI-only services; not required by the MCP request path.
-	MaintenanceService *MaintenanceService
-	BoardService       *BoardService
-	IssueDetailService *IssueDetailService
+	MaintenanceService  *MaintenanceService
+	BoardService        *BoardService
+	IssueDetailService  *IssueDetailService
+	BoardCommandService *BoardCommandService
 }
 
 // Validate ensures all required services are present.

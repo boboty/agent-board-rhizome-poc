@@ -211,6 +211,10 @@ func NewServices(project *runtime.Project, source clock.Clock) (*Services, error
 	if err != nil {
 		return nil, err
 	}
+	boardCommandService, err := application.NewBoardCommandService(issueService, boardService)
+	if err != nil {
+		return nil, err
+	}
 
 	return &Services{
 		project: project,
@@ -233,6 +237,7 @@ func NewServices(project *runtime.Project, source clock.Clock) (*Services, error
 			MaintenanceService:    maintenanceService,
 			BoardService:          boardService,
 			IssueDetailService:    issueDetailService,
+			BoardCommandService:   boardCommandService,
 		},
 	}, nil
 }

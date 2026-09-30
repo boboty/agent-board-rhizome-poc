@@ -64,6 +64,19 @@ class FakeElement {
     }
   }
 
+  closest(selector) {
+    const tag = selector.split("[")[0].toUpperCase();
+    const attribute = (selector.match(/\[([^\]]+)\]/) || [])[1];
+    let node = this;
+    while (node) {
+      if (node.tagName === tag && (!attribute || node.getAttribute(attribute) !== null)) {
+        return node;
+      }
+      node = node.parentNode;
+    }
+    return null;
+  }
+
   addEventListener(event, handler) {
     this.listeners[event] ||= [];
     this.listeners[event].push(handler);
@@ -532,4 +545,52 @@ test("visibility changes stop and restart the refresh loop", async () => {
   harness.document.visibilityState = "visible";
   harness.document.dispatchEvent("visibilitychange");
   assert.equal(harness.fetchCalls.filter(({ url }) => url === "/api/board").length, 2);
+});
+
+test("a refresh during form typing keeps the content and does not adopt the new entity tag", async () => {
+  const harness = createHarness({
+    initialTestHooks: {},
+    boardResponses: [{ status: 200, ok: true, headers: { get: (name) => (name === "ETag" ? "ETAG-2" : null) }, text: "" }],
+    pageResponses: [{ status: 200, ok: true, headers: { get: () => null }, text: "<main data-board-main><p>new content</p></main>" }],
+  });
+  const scriptSource = extractBoardLiveRefreshScript();
+  const root = new FakeElement("main", { id: "root-main", "data-board-main": "" });
+  root.ownerDocument = harness.document;
+  root.innerHTML = "<p>old content</p>";
+  const form = new FakeElement("form", { "data-board-write-form": "" });
+  const input = new FakeElement("input", { id: "task-title" });
+  root.appendChild(form);
+  form.appendChild(input);
+  harness.document.children = [root];
+  harness.document.querySelector = (selector) => (selector === "main[data-board-main]" ? root : null);
+  harness.document.querySelectorAll = () => [];
+  input.focus();
+  const Client = loadClient(scriptSource, harness);
+  const client = new Client(root, {
+    fetch: harness.fetchImpl,
+    setTimeout: harness.setTimeoutImpl,
+    clearTimeout: harness.clearTimeoutImpl,
+    random: harness.randomImpl,
+    now: harness.nowImpl,
+    document: harness.document,
+    window: harness.window,
+    DOMParser: class {
+      parseFromString(body) {
+        const doc = new FakeElement("document");
+        const main = new FakeElement("main", { id: "parsed-main", "data-board-main": "" });
+        main.ownerDocument = doc;
+        main.innerHTML = body;
+        doc.querySelector = (selector) => (selector === "main[data-board-main]" ? main : null);
+        doc.querySelectorAll = () => [];
+        return doc;
+      }
+    },
+  });
+  client.etag = "ETAG-1";
+
+  await client.refresh(false);
+
+  assert.equal(root.innerHTML, "<p>old content</p>", "in-progress input must survive the refresh");
+  assert.equal(client.etag, "ETAG-1", "the skipped update must not adopt the new entity tag");
+  assert.equal(harness.document.activeElement?.id, "task-title");
 });

@@ -83,7 +83,7 @@ func TestRunBoardServeStartsLoopbackServerAndStopsOnCancel(t *testing.T) {
 	stdout := &captureWriter{ch: make(chan string, 1)}
 	errCh := make(chan error, 1)
 	go func() {
-		errCh <- runBoardServe(ctx, &config.Config{HTTPAddress: "127.0.0.1:0"}, stdout, testBoardServeService{})
+		errCh <- runBoardServe(ctx, &config.Config{HTTPAddress: "127.0.0.1:0"}, stdout, testBoardServeService{}, nil)
 	}()
 
 	var listenerURL string

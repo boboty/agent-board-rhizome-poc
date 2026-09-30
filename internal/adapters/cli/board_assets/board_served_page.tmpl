@@ -10,6 +10,19 @@
 <main data-board-main data-board-endpoint="/api/board" data-board-route="/">
 <h1>{{.Title}}</h1>
 <p class="generated">Generated {{.GeneratedAt}}</p>
+{{if .HasBanner}}<p class="board-banner{{if .BannerIsError}} board-banner-error{{end}}" role="status">{{.BannerMessage}}</p>{{end}}
+{{if .WritesEnabled}}<section class="board-write">
+<h2>New task</h2>
+<form method="post" action="/api/issues" data-board-write-form>
+<input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+<label>Title <input type="text" name="title" maxlength="300" required></label>
+<label>Description <textarea name="description" rows="3"></textarea></label>
+<label>Acceptance criteria <textarea name="acceptance_criteria" rows="3"></textarea></label>
+<label>Priority <select name="priority"><option value="" selected>default (medium)</option>{{range .Priorities}}<option value="{{.}}">{{.}}</option>{{end}}</select></label>
+<label>Status <select name="status"><option value="open" selected>open</option><option value="ready">ready</option></select></label>
+<button type="submit">Create task</button>
+</form>
+</section>{{end}}
 {{template "boardWorkflowSection" .Workflow}}
 <section>
 <h2>Search</h2>

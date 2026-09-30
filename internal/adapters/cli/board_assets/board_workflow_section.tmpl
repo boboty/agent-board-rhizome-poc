@@ -1,7 +1,7 @@
 {{define "boardWorkflowSection"}}
 <section class="workflow" aria-labelledby="workflow-heading">
 <h2 id="workflow-heading">Workflow board</h2>
-<p class="generated">Read-only Kanban projection of live project state: one card per issue, derived from issue, attempt, and review data. Cards never move between columns here.</p>
+<p class="generated">Kanban projection of live project state: one card per issue, derived from issue, attempt, and review data. Columns change only through the task actions on this page.</p>
 <div class="kanban">
 {{range .Columns}}
 <div class="kanban-column" data-column="{{.Column}}">
@@ -33,6 +33,20 @@
 {{end}}
 </ul>
 {{end}}
+{{if .CanReorder}}<div class="kanban-actions">
+<form method="post" action="/api/issues/{{.IssueLabel}}/rank" data-board-write-form>
+<input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+<input type="hidden" name="expected_version" value="{{.Version}}">
+<input type="hidden" name="direction" value="up">
+<button type="submit" aria-label="Move {{.IssueLabel}} earlier in READY">Move up</button>
+</form>
+<form method="post" action="/api/issues/{{.IssueLabel}}/rank" data-board-write-form>
+<input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+<input type="hidden" name="expected_version" value="{{.Version}}">
+<input type="hidden" name="direction" value="down">
+<button type="submit" aria-label="Move {{.IssueLabel}} later in READY">Move down</button>
+</form>
+</div>{{end}}
 </li>
 {{end}}
 </ul>
@@ -51,9 +65,13 @@
 <summary>Not on the workflow board ({{len .Unprojected}})</summary>
 <p class="generated">These issues are real project state but no V0.1 workflow column describes them, so the board reports them instead of guessing a column.</p>
 <div class="table-scroll"><table>
-<thead><tr><th>Issue</th><th>Title</th><th>Stored status</th><th>Reason</th><th>Detail</th></tr></thead>
+<thead><tr><th>Issue</th><th>Title</th><th>Stored status</th><th>Reason</th><th>Detail</th><th>Action</th></tr></thead>
 <tbody>
-{{range .Unprojected}}<tr><td>{{if .HasIssueLink}}<a href="{{.IssueHref}}">{{.IssueLabel}}</a>{{else}}{{.IssueLabel}}{{end}}</td><td>{{.Title}}</td><td>{{.StoredStatus}}</td><td>{{.Reason}}</td><td>{{.Detail}}</td></tr>
+{{range .Unprojected}}<tr><td>{{if .HasIssueLink}}<a href="{{.IssueHref}}">{{.IssueLabel}}</a>{{else}}{{.IssueLabel}}{{end}}</td><td>{{.Title}}</td><td>{{.StoredStatus}}</td><td>{{.Reason}}</td><td>{{.Detail}}</td><td>{{if .CanMoveToReady}}<form method="post" action="/api/issues/{{.IssueLabel}}/ready" data-board-write-form>
+<input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+<input type="hidden" name="expected_version" value="{{.Version}}">
+<button type="submit" aria-label="Queue {{.IssueLabel}} into READY">Move to READY</button>
+</form>{{else}}—{{end}}</td></tr>
 {{end}}</tbody>
 </table></div>
 {{if .UnprojectedTruncated}}<p class="empty">Showing the first 100 not-projected issues; more exist.</p>{{end}}
