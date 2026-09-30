@@ -27,9 +27,11 @@ READY
   -> verification                               (task state: IN PROGRESS)
       -> PASS -> DONE                           (task state: DONE)
       -> RC   -> Developer correction -> new verification
-                                                (READY while the rework is
-                                                 unclaimed, IN PROGRESS while
-                                                 it runs)
+                                                (IN PROGRESS: execution has
+                                                 started, so the task stays
+                                                 IN PROGRESS across the RC
+                                                 round; only an explicit
+                                                 BLOCKED could stop it)
       -> DECISION REQUIRED -> human decision -> resume or close
                                                 (task state: BLOCKED)
 ```

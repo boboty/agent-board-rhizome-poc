@@ -225,6 +225,13 @@ type BoardWorkflowPlacementInput struct {
 	// is deliberately not consulted: whether the task is being developed,
 	// verified, or reworked, an active attempt means the task is in progress.
 	ActiveAttempt *ActiveAttemptSummary
+	// ExecutionStarted reports whether the task has ever been claimed, worked
+	// on, and undergone review — proof that execution began. The application
+	// layer sets this from the presence of a changes_requested review round
+	// (the clearest evidence that work happened). A stored-ready issue whose
+	// execution has started stays IN PROGRESS until the task reaches a terminal
+	// column; a fresh stored-ready issue with no execution history is READY.
+	ExecutionStarted bool
 }
 
 // DeriveBoardWorkflowPlacement maps one issue onto at most one task-level
@@ -250,7 +257,14 @@ type BoardWorkflowPlacementInput struct {
 //  6. stored blocked -> BLOCKED, whatever caused the block (external
 //     dependency, workflow gate, human decision). The cause is card detail;
 //     the board does not guess which kind it was.
-//  7. stored ready -> READY.
+//  7. stored ready:
+//     a. ExecutionStarted (proven by a changes_requested review round) ->
+//     IN PROGRESS. The task has begun executing and has not yet reached a
+//     terminal column; an RC round is proof that work happened, and
+//     dropping back to READY would let it be re-started under a new
+//     orchestrator without an explicit signal from the current one.
+//     b. otherwise -> READY. The task is claimable and has never been
+//     executed.
 //  8. anything else -> unprojected with a reason.
 func DeriveBoardWorkflowPlacement(input BoardWorkflowPlacementInput) (BoardWorkflowColumn, string) {
 	issue := input.Issue
@@ -272,6 +286,9 @@ func DeriveBoardWorkflowPlacement(input BoardWorkflowPlacementInput) (BoardWorkf
 	case StatusBlocked:
 		return BoardWorkflowColumnBlocked, ""
 	case StatusReady:
+		if input.ExecutionStarted {
+			return BoardWorkflowColumnInProgress, ""
+		}
 		return BoardWorkflowColumnReady, ""
 	case StatusOpen:
 		return "", BoardWorkflowReasonNotReady

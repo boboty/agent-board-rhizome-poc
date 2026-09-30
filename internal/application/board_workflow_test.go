@@ -146,8 +146,8 @@ func TestBoardServiceWorkflowProjectsRealStateOntoColumns(t *testing.T) {
 		cardsByColumn[card.Column] = append(cardsByColumn[card.Column], card.IssueDisplayID)
 	}
 	want := map[domain.BoardWorkflowColumn][]string{
-		domain.BoardWorkflowColumnReady:      {"ISSUE-20", "ISSUE-21", "ISSUE-22"},
-		domain.BoardWorkflowColumnInProgress: {"ISSUE-10", "ISSUE-30", "ISSUE-31"},
+		domain.BoardWorkflowColumnReady:      {"ISSUE-21", "ISSUE-22"},
+		domain.BoardWorkflowColumnInProgress: {"ISSUE-10", "ISSUE-20", "ISSUE-30", "ISSUE-31"},
 		domain.BoardWorkflowColumnDone:       {"ISSUE-40"},
 		domain.BoardWorkflowColumnBlocked:    {"ISSUE-50", "ISSUE-60"},
 	}
@@ -293,8 +293,8 @@ func TestBoardServiceWorkflowCardShowsExecutorRuntimeMetadata(t *testing.T) {
 			decision = &result.Workflow.Cards[index]
 		}
 	}
-	if changesRequested == nil || changesRequested.Column != domain.BoardWorkflowColumnReady {
-		t.Fatalf("changes-requested card = %#v, want READY with the round as detail", changesRequested)
+	if changesRequested == nil || changesRequested.Column != domain.BoardWorkflowColumnInProgress {
+		t.Fatalf("changes-requested card = %#v, want IN PROGRESS with the round as detail", changesRequested)
 	}
 	if changesRequested.ReviewStatus == nil || *changesRequested.ReviewStatus != domain.ReviewRequestStatusChangesRequested {
 		t.Fatalf("changes-requested review status = %v, want changes_requested", changesRequested.ReviewStatus)
@@ -303,7 +303,7 @@ func TestBoardServiceWorkflowCardShowsExecutorRuntimeMetadata(t *testing.T) {
 		t.Fatalf("changes_requested_count = %d, want 1", changesRequested.ChangesRequestedCount)
 	}
 	if changesRequested.AttemptID != "" {
-		t.Fatalf("rework-ready card attempt = %q, want no active attempt", changesRequested.AttemptID)
+		t.Fatalf("rework card attempt = %q, want no active attempt (the round is history, not a current claim)", changesRequested.AttemptID)
 	}
 	if decision == nil || decision.Column != domain.BoardWorkflowColumnBlocked {
 		t.Fatalf("blocked-review card = %#v, want BLOCKED", decision)
@@ -584,11 +584,11 @@ func TestBoardServiceWorkflowNewestReviewDecisionWins(t *testing.T) {
 		columns[card.IssueDisplayID] = card.Column
 		reviewStatus[card.IssueDisplayID] = card.ReviewStatus
 	}
-	if columns["ISSUE-20"] != domain.BoardWorkflowColumnReady {
-		t.Fatalf("ISSUE-20 column = %q, want READY: stored ready is READY whatever the review history", columns["ISSUE-20"])
+	if columns["ISSUE-20"] != domain.BoardWorkflowColumnInProgress {
+		t.Fatalf("ISSUE-20 column = %q, want IN PROGRESS: stored ready with execution history (changes_requested) stays IN PROGRESS", columns["ISSUE-20"])
 	}
-	if columns["ISSUE-21"] != domain.BoardWorkflowColumnReady {
-		t.Fatalf("ISSUE-21 column = %q, want READY: stored ready is READY whatever the review history", columns["ISSUE-21"])
+	if columns["ISSUE-21"] != domain.BoardWorkflowColumnInProgress {
+		t.Fatalf("ISSUE-21 column = %q, want IN PROGRESS: stored ready with execution history (changes_requested, then cancelled) stays IN PROGRESS", columns["ISSUE-21"])
 	}
 	if columns["ISSUE-50"] != domain.BoardWorkflowColumnBlocked {
 		t.Fatalf("ISSUE-50 column = %q, want BLOCKED: a later approval is detail, not a column move", columns["ISSUE-50"])
@@ -629,11 +629,10 @@ func TestBoardServiceWorkflowNewestReviewDecisionWins(t *testing.T) {
 	}
 }
 
-// TestBoardServiceWorkflowReworkCardKeepsItsDelivery pins the AB-5 delivery
-// rule: a stored-ready card sent back for changes is READY again, and it must
-// keep the delivery references its earlier round produced (the retired RC card
-// carried them). A READY card that has never been reviewed is still skipped,
-// so the board does not read artifacts for work that cannot have any.
+// TestBoardServiceWorkflowReworkCardKeepsItsDelivery pins the delivery rule:
+// a stored-ready card that has execution history (changes_requested) is IN
+// PROGRESS, so it is never skipped by the delivery gate and always carries
+// its references. The untouched READY cards are still skipped.
 func TestBoardServiceWorkflowReworkCardKeepsItsDelivery(t *testing.T) {
 	now := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
 	service, reader := workflowBoardFixture(t, now)
@@ -652,8 +651,8 @@ func TestBoardServiceWorkflowReworkCardKeepsItsDelivery(t *testing.T) {
 			rework = &result.Workflow.Cards[index]
 		}
 	}
-	if rework == nil || rework.Column != domain.BoardWorkflowColumnReady {
-		t.Fatalf("rework card = %#v, want READY", rework)
+	if rework == nil || rework.Column != domain.BoardWorkflowColumnInProgress {
+		t.Fatalf("rework card = %#v, want IN PROGRESS", rework)
 	}
 	if len(rework.Delivery) != 1 || rework.Delivery[0].URI != "deadbee" {
 		t.Fatalf("rework READY card delivery = %#v, want the earlier round's commit", rework.Delivery)

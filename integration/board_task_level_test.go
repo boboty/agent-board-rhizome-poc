@@ -149,21 +149,25 @@ func TestIntegrationBoardTaskLevelLifecycleStaysInFourColumns(t *testing.T) {
 		t.Fatalf("verifier stage attempt kind = %q, want review", verifying.AttemptKind)
 	}
 
-	// changes_requested: the task is stored ready again, so it is executable
-	// READY work, and the failed round is card detail. No RC column appears.
+	// changes_requested: the task is stored ready again and has execution
+	// history -> IN PROGRESS. Execution started, so it cannot fall back to
+	// READY without the orchestrator explicitly moving it to BLOCKED. No RC
+	// column appears.
 	changes := boardWorkflowFinish(t, session, reviewClaim, map[string]any{"review_outcome": "changes_requested"})
 	if changes.Issue.Status != "ready" {
 		t.Fatalf("changes_requested left the issue in %q, want ready", changes.Issue.Status)
 	}
-	rework := assertBoardStage(t, env, task.DisplayID, "ready", "changes requested")
+	rework := assertBoardStage(t, env, task.DisplayID, "in_progress", "changes requested")
 	if rework.ReviewStatus == nil || *rework.ReviewStatus != "changes_requested" || rework.ChangesRequestedCount != 1 {
 		t.Fatalf("changes-requested card detail = %#v, want the failed round", rework)
 	}
 	if rework.AttemptKind != "" {
-		t.Fatalf("rework-ready card attempt kind = %q, want none", rework.AttemptKind)
+		t.Fatalf("rework card attempt kind = %q, want no active attempt (the round is history)", rework.AttemptKind)
 	}
 
-	// Rework: claiming it again is IN PROGRESS for the whole repair phase.
+	// Reclaiming it works as a new work attempt — the ExecutionStarted flag
+	// ensures it stayed IN PROGRESS the whole time, so no orchestrator could
+	// have picked it up as fresh READY work while it was unattended.
 	refixClaim := boardWorkflowClaimIssue(t, session, task.DisplayID, "")
 	if refixClaim.Attempt.Kind != "work" {
 		t.Fatalf("re-fix claim kind = %q, want work", refixClaim.Attempt.Kind)

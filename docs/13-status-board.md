@@ -212,12 +212,15 @@ The board renders a human workflow view of the same project state: four
 task-level columns, one card per issue. It is a projection, not a second status
 store, and it is not a process-phase view.
 
-- **READY** — stored `ready` and no active attempt: the task can be executed
-  now.
+- **READY** — stored `ready` and no active attempt and no execution history
+  (the task has never been claimed, worked on, or undergone review): the task
+  can be executed now.
 - **IN PROGRESS** — the task has an active attempt of any kind, or it is stored
-  `review` (delivered, awaiting or undergoing verification). Development,
-  independent verification, changes-requested rework, and re-verification are
-  phases of this one task-level state.
+  `review` (delivered, awaiting or undergoing verification), or it is stored
+  `ready` but has execution history (proven by a `changes_requested` review
+  round: execution began and has not yet reached a terminal column).
+  Development, independent verification, changes-requested rework, and
+  re-verification are phases of this one task-level state.
 - **DONE** — stored `done`.
 - **BLOCKED** — stored `blocked`. The cause (external dependency, workflow
   gate, human decision, orchestration dead end) is card detail; the board never
@@ -225,15 +228,17 @@ store, and it is not a process-phase view.
 
 There is deliberately no VERIFYING, RC, or DECISION REQUIRED column. Those were
 process phases, and AB-5 collapsed them into their task-level states: an active
-verifier is IN PROGRESS, a changes-requested round is READY work again (stored
-`ready` after the failed round, so it is claimable) with the round as card
-detail, and a blocked review is BLOCKED with the review outcome as card detail.
+verifier is IN PROGRESS, a changes-requested round keeps the task IN PROGRESS
+because execution has started and the task must not fall back to READY without
+an explicit BLOCKED signal from the orchestrator, and a blocked review is
+BLOCKED with the review outcome as card detail.
 
 ### 8.1. Derivation rules
 
 Each issue is placed by the first matching rule, and the derivation reads only
-the stored status and the active attempt — no review, verification, or
-changes-requested signal can move a card between columns:
+the stored status, the active attempt, and an `ExecutionStarted` boolean
+(proven by a `changes_requested` review round — the clearest evidence that
+real work happened):
 
 1. archived → not projected;
 2. `done` → DONE;
@@ -243,7 +248,13 @@ changes-requested signal can move a card between columns:
    status is derived);
 5. `review` → IN PROGRESS;
 6. `blocked` → BLOCKED;
-7. `ready` → READY;
+7. `ready` — then:
+   a. `ExecutionStarted` → IN PROGRESS. The task has begun executing and has
+      not yet reached a terminal column; a `changes_requested` round is proof
+      that work happened, and dropping back to READY would let it be
+      re-started under a new orchestrator without an explicit signal from the
+      current one. The orchestrator must move it to BLOCKED to stop.
+   b. otherwise → READY. The task is claimable and never been executed.
 8. anything else → not projected.
 
 ### 8.2. One task, one column

@@ -271,7 +271,7 @@ func TestIntegrationBoardWorkflowProjectsRealLifecycle(t *testing.T) {
 		refs.inProgress.DisplayID:    "in_progress",
 		refs.verifyingOpen.DisplayID: "in_progress",
 		refs.verifyingBusy.DisplayID: "in_progress",
-		refs.changesAsked.DisplayID:  "ready",
+		refs.changesAsked.DisplayID:  "in_progress",
 		refs.decision.DisplayID:      "blocked",
 		refs.done.DisplayID:          "done",
 	}
@@ -359,18 +359,17 @@ func TestIntegrationBoardWorkflowProjectsRealLifecycle(t *testing.T) {
 		t.Fatalf("DONE card delivery = %#v, want the commit artifact only", doneCard.Delivery)
 	}
 
-	// The sent-back task is READY again (stored ready without an active
-	// attempt) and reports the failed round as card detail, not as an RC
-	// column.
+	// The sent-back task is IN PROGRESS (the round proves execution started)
+	// and reports the failed round as card detail, not as an RC column.
 	reworkCard := cards[refs.changesAsked.DisplayID]
-	if reworkCard.Column != "ready" {
-		t.Fatalf("changes-requested card column = %q, want ready", reworkCard.Column)
+	if reworkCard.Column != "in_progress" {
+		t.Fatalf("changes-requested card column = %q, want in_progress (execution started)", reworkCard.Column)
 	}
 	if reworkCard.ReviewStatus == nil || *reworkCard.ReviewStatus != "changes_requested" || reworkCard.ChangesRequestedCount != 1 {
 		t.Fatalf("changes-requested card detail = %#v, want one changes_requested round", reworkCard)
 	}
 	if reworkCard.AttemptKind != "" {
-		t.Fatalf("rework-ready card attempt kind = %q, want no active attempt", reworkCard.AttemptKind)
+		t.Fatalf("rework card attempt kind = %q, want no active attempt (the round is history)", reworkCard.AttemptKind)
 	}
 
 	// The blocked review is a BLOCKED task with its reason and decision as
@@ -422,7 +421,7 @@ func TestIntegrationBoardWorkflowProjectsRealLifecycle(t *testing.T) {
 	// The CLI table exposes the same projection.
 	table := string(runIntegrationCommand(t, env, "--data-root", env.dataRoot, "board", "--format", "table"))
 	for _, want := range []string{"workflow\ncolumn\ttitle\tcount", "workflow_cards", "workflow_unprojected",
-		"in_progress\t" + refs.inProgress.DisplayID, "ready\t" + refs.changesAsked.DisplayID,
+		"in_progress\t" + refs.inProgress.DisplayID, "in_progress\t" + refs.changesAsked.DisplayID,
 		"blocked\t" + refs.decision.DisplayID} {
 		if !strings.Contains(table, want) {
 			t.Fatalf("board table is missing %q:\n%s", want, table)
