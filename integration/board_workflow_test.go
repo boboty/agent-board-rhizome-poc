@@ -200,6 +200,7 @@ func seedBoardWorkflowLifecycle(t *testing.T, env integrationEnvironment, sessio
 // integration test asserts the documented contract instead of the Go type.
 type boardWorkflowCard struct {
 	Column                string  `json:"column"`
+	BlockedReason         *string `json:"blocked_reason"`
 	IssueID               string  `json:"issue_id"`
 	IssueDisplayID        string  `json:"issue_display_id"`
 	Title                 string  `json:"title"`
@@ -247,11 +248,12 @@ func decodeBoardWorkflow(t *testing.T, body []byte) boardWorkflowPayload {
 	return payload.Workflow
 }
 
-// TestIntegrationBoardWorkflowProjectsRealLifecycle is acceptance AB-3 #1-#4
-// end to end through the real binary: after seeding every workflow state, each
-// issue appears in exactly one correct column, the IN PROGRESS card carries the
-// claiming session's runtime metadata, the DONE card carries its commit, and
-// the RC card reports the changes-requested round.
+// TestIntegrationBoardWorkflowProjectsRealLifecycle is the task-level
+// projection end to end through the real binary: after seeding every workflow
+// state, each issue appears in exactly one of the four columns, the IN PROGRESS
+// card carries the claiming session's runtime metadata, the DONE card carries
+// its commit, and verification / changes-requested / blocked-review state is
+// card detail rather than a column.
 func TestIntegrationBoardWorkflowProjectsRealLifecycle(t *testing.T) {
 	t.Parallel()
 	env := newIntegrationEnvironment(t)
@@ -261,13 +263,16 @@ func TestIntegrationBoardWorkflowProjectsRealLifecycle(t *testing.T) {
 	body := runIntegrationCommand(t, env, "--data-root", env.dataRoot, "board", "--format", "json")
 	workflow := decodeBoardWorkflow(t, body)
 
+	// AB-5: every seeded state lands in one of the four task-level columns.
+	// Verification, changes-requested, and blocked-review states are execution
+	// detail, not columns of their own.
 	wantColumns := map[string]string{
 		refs.ready.DisplayID:         "ready",
 		refs.inProgress.DisplayID:    "in_progress",
-		refs.verifyingOpen.DisplayID: "verifying",
-		refs.verifyingBusy.DisplayID: "verifying",
-		refs.changesAsked.DisplayID:  "rc",
-		refs.decision.DisplayID:      "decision_required",
+		refs.verifyingOpen.DisplayID: "in_progress",
+		refs.verifyingBusy.DisplayID: "in_progress",
+		refs.changesAsked.DisplayID:  "ready",
+		refs.decision.DisplayID:      "blocked",
 		refs.done.DisplayID:          "done",
 	}
 	columns := map[string]string{}
@@ -313,7 +318,7 @@ func TestIntegrationBoardWorkflowProjectsRealLifecycle(t *testing.T) {
 	}
 
 	// Every column heading is present, in order, and its count matches its cards.
-	wantTitles := []string{"READY", "IN PROGRESS", "VERIFYING", "RC", "DECISION REQUIRED", "DONE"}
+	wantTitles := []string{"READY", "IN PROGRESS", "DONE", "BLOCKED"}
 	if len(workflow.Columns) != len(wantTitles) {
 		t.Fatalf("columns = %#v, want %d", workflow.Columns, len(wantTitles))
 	}
@@ -354,10 +359,57 @@ func TestIntegrationBoardWorkflowProjectsRealLifecycle(t *testing.T) {
 		t.Fatalf("DONE card delivery = %#v, want the commit artifact only", doneCard.Delivery)
 	}
 
-	// The RC card reports the review round it came back from.
-	rcCard := cards[refs.changesAsked.DisplayID]
-	if rcCard.ReviewStatus == nil || *rcCard.ReviewStatus != "changes_requested" || rcCard.ChangesRequestedCount != 1 {
-		t.Fatalf("RC card review signal = %#v, want one changes_requested round", rcCard)
+	// The sent-back task is READY again (stored ready without an active
+	// attempt) and reports the failed round as card detail, not as an RC
+	// column.
+	reworkCard := cards[refs.changesAsked.DisplayID]
+	if reworkCard.Column != "ready" {
+		t.Fatalf("changes-requested card column = %q, want ready", reworkCard.Column)
+	}
+	if reworkCard.ReviewStatus == nil || *reworkCard.ReviewStatus != "changes_requested" || reworkCard.ChangesRequestedCount != 1 {
+		t.Fatalf("changes-requested card detail = %#v, want one changes_requested round", reworkCard)
+	}
+	if reworkCard.AttemptKind != "" {
+		t.Fatalf("rework-ready card attempt kind = %q, want no active attempt", reworkCard.AttemptKind)
+	}
+
+	// The blocked review is a BLOCKED task with its reason and decision as
+	// detail, not a DECISION REQUIRED column.
+	blockedCard := cards[refs.decision.DisplayID]
+	if blockedCard.Column != "blocked" {
+		t.Fatalf("blocked-review card column = %q, want blocked", blockedCard.Column)
+	}
+	if blockedCard.ReviewStatus == nil || *blockedCard.ReviewStatus != "blocked" {
+		t.Fatalf("blocked card review detail = %v, want blocked", blockedCard.ReviewStatus)
+	}
+	if blockedCard.BlockedReason == nil || !strings.Contains(*blockedCard.BlockedReason, "product decision") {
+		t.Fatalf("blocked card reason = %v, want the stored reason", blockedCard.BlockedReason)
+	}
+
+	// A verifier holding the task is execution detail inside IN PROGRESS: the
+	// attempt kind is visible and the column is unchanged. This fixture claims
+	// the review session-lessly on purpose, so the executor fields stay absent
+	// rather than being invented.
+	verifierCard := cards[refs.verifyingBusy.DisplayID]
+	if verifierCard.Column != "in_progress" || verifierCard.AttemptKind != "review" {
+		t.Fatalf("verifier card = %#v, want an in_progress card with a review attempt", verifierCard)
+	}
+	if verifierCard.ExecutorLabel != nil {
+		t.Fatalf("session-less verifier card invented an executor: %#v", verifierCard)
+	}
+	// A stored-review task nobody holds is still IN PROGRESS: verification is a
+	// phase of the task, not a separate column.
+	awaitingCard := cards[refs.verifyingOpen.DisplayID]
+	if awaitingCard.Column != "in_progress" || awaitingCard.AttemptKind != "" {
+		t.Fatalf("awaiting-verification card = %#v, want in_progress with no active attempt", awaitingCard)
+	}
+	// The four columns are the whole board: no card may carry a retired column.
+	for _, card := range workflow.Cards {
+		switch card.Column {
+		case "ready", "in_progress", "done", "blocked":
+		default:
+			t.Fatalf("card %s carries retired column %q", card.IssueDisplayID, card.Column)
+		}
 	}
 
 	// Nothing was cut on a fixture this small, so no flag may claim otherwise.
@@ -370,16 +422,23 @@ func TestIntegrationBoardWorkflowProjectsRealLifecycle(t *testing.T) {
 	// The CLI table exposes the same projection.
 	table := string(runIntegrationCommand(t, env, "--data-root", env.dataRoot, "board", "--format", "table"))
 	for _, want := range []string{"workflow\ncolumn\ttitle\tcount", "workflow_cards", "workflow_unprojected",
-		"in_progress\t" + refs.inProgress.DisplayID, "rc\t" + refs.changesAsked.DisplayID} {
+		"in_progress\t" + refs.inProgress.DisplayID, "ready\t" + refs.changesAsked.DisplayID,
+		"blocked\t" + refs.decision.DisplayID} {
 		if !strings.Contains(table, want) {
 			t.Fatalf("board table is missing %q:\n%s", want, table)
 		}
 	}
+	for _, retired := range []string{"\trc\t", "\tverifying\t", "\tdecision_required\t"} {
+		if strings.Contains(table, retired) {
+			t.Fatalf("board table still carries the retired column %q:\n%s", retired, table)
+		}
+	}
 }
 
-// TestIntegrationBoardWorkflowStaticAndServedHTML is acceptance AB-3 #5: both
-// the archived static snapshot and the served web board render the Kanban
-// read-only, with the same executor runtime metadata the JSON carries.
+// TestIntegrationBoardWorkflowStaticAndServedHTML: both the archived static
+// snapshot and the served web board render the same four-column task-level
+// Kanban, with the same execution detail the JSON carries and no retired
+// process-phase column.
 func TestIntegrationBoardWorkflowStaticAndServedHTML(t *testing.T) {
 	t.Parallel()
 	env := newIntegrationEnvironment(t)
@@ -438,14 +497,21 @@ func TestIntegrationBoardWorkflowStaticAndServedHTML(t *testing.T) {
 func assertWorkflowHTML(t *testing.T, surface, html string, refs boardWorkflowIssueRefs, writable bool) {
 	t.Helper()
 	for _, want := range []string{
-		"Workflow board", "kanban-column", "READY", "IN PROGRESS", "VERIFYING", "RC",
-		"DECISION REQUIRED", "DONE",
+		"Workflow board", "kanban-column", "READY", "IN PROGRESS", "DONE", "BLOCKED",
 		refs.inProgress.DisplayID, "Luna", "worker-1", "Codex CLI", "gpt-5", "/tmp/wt/AB-3",
 		refs.changesAsked.DisplayID, "changes_requested",
 		refs.done.DisplayID, "abc1234",
+		// The blocked task's reason is card detail on a BLOCKED card.
+		refs.decision.DisplayID, "product decision required",
 	} {
 		if !strings.Contains(html, want) {
 			t.Fatalf("%s is missing %q", surface, want)
+		}
+	}
+	// AB-5: the retired process-phase columns are gone from every surface.
+	for _, retired := range []string{"VERIFYING", "DECISION REQUIRED", `data-column="rc"`, `data-column="verifying"`, `data-column="decision_required"`} {
+		if strings.Contains(html, retired) {
+			t.Fatalf("%s still renders retired column %q", surface, retired)
 		}
 	}
 	// The offline snapshot must stay a read-only artifact: it serves no routes,

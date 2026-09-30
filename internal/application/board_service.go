@@ -172,8 +172,8 @@ type ReadyQueueSnapshot struct {
 // ReadyQueue returns the issues currently shown in the READY column, using the
 // same bounded reads and the same placement rules as GetBoard. A reorder that
 // plans from this snapshot can therefore only touch cards the operator
-// actually saw: a stored-ready issue that is displayed as IN PROGRESS (active
-// work attempt) or RC (changes requested) is not part of the queue.
+// actually saw: a stored-ready issue that is displayed as IN PROGRESS because
+// it has an active work attempt is not part of the queue.
 func (service *BoardService) ReadyQueue(ctx context.Context) (ReadyQueueSnapshot, error) {
 	openStatus := string(domain.ReviewRequestStatusOpen)
 	reviewPage, err := service.reviewService.ListReviewRequests(ctx, ListReviewRequestsInput{
@@ -199,7 +199,10 @@ func (service *BoardService) ReadyQueue(ctx context.Context) (ReadyQueueSnapshot
 	if err != nil {
 		return ReadyQueueSnapshot{}, err
 	}
-	snapshot := ReadyQueueSnapshot{Truncated: projection.Truncation.Ready}
+	// A cut active-attempt read can hide the attempt that would place a
+	// stored-ready issue in IN PROGRESS, which would make the plan wrong, so it
+	// disables reordering exactly like a cut READY read.
+	snapshot := ReadyQueueSnapshot{Truncated: projection.Truncation.Ready || activeAttemptList.HasMore}
 	for _, card := range projection.Cards {
 		if card.Column == domain.BoardWorkflowColumnReady {
 			snapshot.Cards = append(snapshot.Cards, card)

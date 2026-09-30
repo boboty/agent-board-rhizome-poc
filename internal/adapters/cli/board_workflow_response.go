@@ -9,8 +9,8 @@ import (
 )
 
 // BoardWorkflow is the stable CLI/HTTP projection of the board's workflow
-// (Kanban) view: the six human workflow columns with their card counts, one
-// card per projected issue, and the issues the projection deliberately did not
+// (Kanban) view: the four task-level columns with their card counts, one card
+// per projected issue, and the issues the projection deliberately did not
 // place. It is derived from the board's own reads and persists nothing.
 type BoardWorkflow struct {
 	Columns     []BoardWorkflowColumn      `json:"columns"`
@@ -55,6 +55,7 @@ type BoardWorkflowCard struct {
 	AttemptStartedAt    *time.Time `json:"attempt_started_at,omitempty"`
 	LeaseExpiresAt      *time.Time `json:"lease_expires_at,omitempty"`
 
+	BlockedReason         *string    `json:"blocked_reason,omitempty"`
 	ReviewRequestID       *string    `json:"review_request_id,omitempty"`
 	ReviewStatus          *string    `json:"review_status,omitempty"`
 	ReviewTargetVersion   *int64     `json:"review_target_version,omitempty"`
@@ -89,7 +90,8 @@ type BoardWorkflowUnprojected struct {
 // projection was cut, per contributing source.
 type BoardWorkflowTruncation struct {
 	Ready               bool `json:"ready"`
-	Verifying           bool `json:"verifying"`
+	Review              bool `json:"review"`
+	Blocked             bool `json:"blocked"`
 	Done                bool `json:"done"`
 	Unprojected         bool `json:"unprojected"`
 	ReviewRequests      bool `json:"review_requests"`
@@ -108,7 +110,8 @@ func boardWorkflowFromDomain(workflow domain.BoardWorkflowProjection) BoardWorkf
 			Column: string(card.Column), IssueID: card.IssueID, IssueDisplayID: card.IssueDisplayID,
 			Title: card.Title, Type: string(card.Type), Priority: string(card.Priority),
 			StoredStatus: string(card.StoredStatus), Version: card.Version, ReadyRank: copyOptionalInt64(card.ReadyRank),
-			IsClaimable: card.IsClaimable, AttemptID: card.AttemptID, AttemptKind: string(card.AttemptKind),
+			BlockedReason: copyOptionalString(card.BlockedReason),
+			IsClaimable:   card.IsClaimable, AttemptID: card.AttemptID, AttemptKind: string(card.AttemptKind),
 			ExecutorLabel: copyOptionalString(card.ExecutorLabel), ExecutorInstanceKey: copyOptionalString(card.ExecutorInstanceKey),
 			ExecutorClient: copyOptionalString(card.ExecutorClient), ExecutorModel: copyOptionalString(card.ExecutorModel),
 			ExecutorWorktree: copyOptionalString(card.ExecutorWorktree),
@@ -134,7 +137,8 @@ func boardWorkflowFromDomain(workflow domain.BoardWorkflowProjection) BoardWorkf
 		Columns: columns, Cards: cards, Unprojected: unprojected,
 		Truncation: BoardWorkflowTruncation{
 			Ready:               workflow.Truncation.Ready,
-			Verifying:           workflow.Truncation.Verifying,
+			Review:              workflow.Truncation.Review,
+			Blocked:             workflow.Truncation.Blocked,
 			Done:                workflow.Truncation.Done,
 			Unprojected:         workflow.Truncation.Unprojected,
 			ReviewRequests:      workflow.Truncation.ReviewRequests,
@@ -168,7 +172,7 @@ func writeBoardWorkflowTable(builder *strings.Builder, workflow domain.BoardWork
 		builder.WriteString(fmt.Sprintf("%s\t%s\t%d\n", column.Column, column.Title, column.Count))
 	}
 	builder.WriteString("\nworkflow_cards\n")
-	builder.WriteString("column\tissue\ttitle\tpriority\tready_rank\tattempt\texecutor\tclient\tmodel\tworktree\treview_status\tchanges_requested\tcommit\n")
+	builder.WriteString("column\tissue\ttitle\tpriority\tready_rank\tattempt\texecutor\tclient\tmodel\tworktree\treview_status\tchanges_requested\tblocked_reason\tcommit\n")
 	for _, card := range workflow.Cards {
 		readyRank := ""
 		if card.ReadyRank != nil {
@@ -182,18 +186,22 @@ func writeBoardWorkflowTable(builder *strings.Builder, workflow domain.BoardWork
 		if card.ChangesRequestedCount > 0 {
 			changesRequested = fmt.Sprintf("%d", card.ChangesRequestedCount)
 		}
-		builder.WriteString(fmt.Sprintf("%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+		builder.WriteString(fmt.Sprintf("%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
 			card.Column, card.IssueDisplayID, escapeTableValue(card.Title), card.Priority, readyRank,
 			card.AttemptKind, escapeTableValue(optionalTableValue(card.ExecutorLabel)),
 			escapeTableValue(optionalTableValue(card.ExecutorClient)), escapeTableValue(optionalTableValue(card.ExecutorModel)),
 			escapeTableValue(optionalTableValue(card.ExecutorWorktree)), reviewStatus, changesRequested,
+			escapeTableValue(optionalTableValue(card.BlockedReason)),
 			escapeTableValue(boardWorkflowDeliveryCell(card.Delivery))))
 	}
 	if workflow.Truncation.Ready {
 		builder.WriteString(fmt.Sprintf("truncated\ttrue\t(READY cards cut at %d)\n", domain.MaxBoardCollectionLimit))
 	}
-	if workflow.Truncation.Verifying {
-		builder.WriteString(fmt.Sprintf("truncated\ttrue\t(VERIFYING cards cut at %d)\n", domain.MaxBoardCollectionLimit))
+	if workflow.Truncation.Review {
+		builder.WriteString(fmt.Sprintf("truncated\ttrue\t(IN PROGRESS cards from stored review cut at %d)\n", domain.MaxBoardCollectionLimit))
+	}
+	if workflow.Truncation.Blocked {
+		builder.WriteString(fmt.Sprintf("truncated\ttrue\t(BLOCKED cards cut at %d)\n", domain.MaxBoardCollectionLimit))
 	}
 	if workflow.Truncation.Done {
 		builder.WriteString(fmt.Sprintf("truncated\ttrue\t(DONE cards cut at %d)\n", domain.MaxBoardCollectionLimit))

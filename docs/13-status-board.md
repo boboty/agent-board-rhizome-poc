@@ -208,66 +208,64 @@ the §11 write surface has no gate action.
 
 ## 8. Workflow (Kanban) projection
 
-The board renders a human workflow view of the same project state: six
-columns, one card per issue. It is a projection, not a second status store.
+The board renders a human workflow view of the same project state: four
+task-level columns, one card per issue. It is a projection, not a second status
+store, and it is not a process-phase view.
 
-- **READY** — stored `ready`, no active attempt, and no review that resolved
-  to `changes_requested`.
-- **IN PROGRESS** — the issue has an active work attempt.
-- **VERIFYING** — stored `review`, or the issue has an active review attempt.
-- **RC** — stored `ready` and the issue's most recent review request is
-  `changes_requested`. `changes_requested` moves an issue back to `ready`
-  (docs/09), so "ready after a failed review" is the RC state and is not
-  distinguishable from unstarted READY work by status alone.
-- **DECISION REQUIRED** — stored `blocked` because a review resolved to
-  `blocked`, i.e. the reviewer stopped pending an authoritative decision.
+- **READY** — stored `ready` and no active attempt: the task can be executed
+  now.
+- **IN PROGRESS** — the task has an active attempt of any kind, or it is stored
+  `review` (delivered, awaiting or undergoing verification). Development,
+  independent verification, changes-requested rework, and re-verification are
+  phases of this one task-level state.
 - **DONE** — stored `done`.
+- **BLOCKED** — stored `blocked`. The cause (external dependency, workflow
+  gate, human decision, orchestration dead end) is card detail; the board never
+  splits it into separate columns, and it never guesses which kind it was.
+
+There is deliberately no VERIFYING, RC, or DECISION REQUIRED column. Those were
+process phases, and AB-5 collapsed them into their task-level states: an active
+verifier is IN PROGRESS, a changes-requested round is READY work again (stored
+`ready` after the failed round, so it is claimable) with the round as card
+detail, and a blocked review is BLOCKED with the review outcome as card detail.
 
 ### 8.1. Derivation rules
 
-The stored status is the spine; a review signal only refines the two states a
-review outcome can produce. Each issue is placed by the first matching rule:
+Each issue is placed by the first matching rule, and the derivation reads only
+the stored status and the active attempt — no review, verification, or
+changes-requested signal can move a card between columns:
 
 1. archived → not projected;
 2. `done` → DONE;
 3. `cancelled` → not projected;
-4. an active attempt → IN PROGRESS for a work attempt, VERIFYING for a review
-   attempt (checked before the stored status, because a claimed issue keeps
-   its stored status while its effective status is derived);
-5. `review` → VERIFYING;
-6. `blocked` → DECISION REQUIRED when the latest review resolved to `blocked`,
-   otherwise not projected (an external block, not a decision request);
-7. `ready` → RC when the latest review resolved to `changes_requested`,
-   otherwise READY;
+4. an active attempt of any kind → IN PROGRESS (checked before the stored
+   status, because a claimed issue keeps its stored status while its effective
+   status is derived);
+5. `review` → IN PROGRESS;
+6. `blocked` → BLOCKED;
+7. `ready` → READY;
 8. anything else → not projected.
-
-A review state that no rule claims cannot move a card out of the column its
-stored status implies. "Latest review" means the newest request by creation
-time (request ID breaking ties) across every review status except
-`superseded` — a superseded request always has a later successor that is read,
-so it can never be the newest decision. Terminal statuses count: an issue can
-be reopened (`done -> ready`) or have a request withdrawn, so an older
-`changes_requested` or `blocked` request must not keep a card in RC or
-DECISION REQUIRED after a later `approved`/`cancelled` decision.
 
 ### 8.2. One task, one column
 
 Exactly one card is produced per issue, so an issue can never occupy two
 columns. An issue that no column honestly describes is not guessed into one:
 it is reported in the projection's unprojected list with a machine-readable
-reason (`archived`, `cancelled`, `not_ready`, `externally_blocked`,
-`unknown_status`) and a human sentence. A consumer therefore sees that work
-was left out and why.
+reason (`archived`, `cancelled`, `not_ready`, `unknown_status`) and a human
+sentence. A consumer therefore sees that work was left out and why. Stored
+`open` tasks are reported this way, and the served board offers the §11 queue
+action on them.
 
 ### 8.3. Card fields and degradation
 
 A card carries the task identifier and title, type, priority, `is_claimable`,
 and, when they exist: the READY-queue rank (rendered on READY cards, the only
-column whose position it orders), the claiming session's executor attribution
-(label, instance key, client, model, worktree, lease expiry), the review
-request's identifier, status, target version, and timestamps with the count of
-`changes_requested` rounds read, and the issue's commit/branch/pull-request
-artifacts as delivery references.
+column whose position it orders), the blocked reason (rendered on BLOCKED
+cards), the active attempt's kind plus the claiming session's executor
+attribution (label, instance key, client, model, worktree, lease expiry),
+the review request's identifier, status, target version, and timestamps with
+the count of `changes_requested` rounds read, and the issue's
+commit/branch/pull-request artifacts as delivery references.
 
 Every optional field is omitted from the JSON when the underlying data did not
 carry it; the HTML views render an em-dash placeholder rather than an empty
@@ -275,24 +273,30 @@ cell. The board never synthesizes a developer, verifier, or commit it did not
 read: an attempt claimed without a session handle leaves the executor fields
 absent, and an issue with no commit artifact has no delivery reference.
 
+Review, verification, and changes-requested information therefore stays fully
+readable — `review_status`, `review_target_version`, `changes_requested_count`,
+the review timestamps, `attempt_kind`, and the executor fields — as card detail
+and in the review-request auxiliary section, without becoming a task-level
+state.
+
 Several bounded reads can leave a card's information incomplete, and each is
-reported rather than hidden under `workflow.truncation`: `ready`, `verifying`,
-and `done` cover the three stored-status issue reads, `unprojected` covers the
-open/blocked/cancelled read, and `review_requests` marks that a card's review
-state may be older than the newest request. A card shows at most
-`boardDeliveryReferenceLimit` delivery references; `delivery_overflow` marks
-that some card shows fewer references than its issue has (the per-card cap or a
-truncated artifact read), and `delivery_unavailable` marks that a card's
-delivery references could not be read at all. A card count is therefore always
-a lower-bound-safe number whenever its flag is set.
+reported rather than hidden under `workflow.truncation`: `ready`, `review`,
+`blocked`, and `done` cover the four stored-status issue reads,
+`unprojected` covers the open/cancelled read, and `review_requests` marks that
+a card's review state may be older than the newest request. A card shows at
+most `boardDeliveryReferenceLimit` delivery references; `delivery_overflow`
+marks that some card shows fewer references than its issue has (the per-card
+cap or a truncated artifact read), and `delivery_unavailable` marks that a
+card's delivery references could not be read at all. A card count is therefore
+always a lower-bound-safe number whenever its flag is set.
 
 ### 8.4. Surfaces
 
 - **CLI JSON** (`rhizome-mcp board --format json`) and **`GET /api/board`**
-  gain a `workflow` object with `columns`, `cards`, `unprojected`, and
+  carry a `workflow` object with `columns`, `cards`, `unprojected`, and
   `truncation`. The addition is additive: every pre-existing field keeps its
   meaning.
-- **CLI table** gains `workflow`, `workflow_cards`, and
+- **CLI table** carries `workflow`, `workflow_cards`, and
   `workflow_unprojected` sections after `status_counts`.
 - **HTML** renders the Kanban as the page's primary view on both the static
   snapshot and the served board. The status counts, active attempts, blocked
@@ -327,10 +331,12 @@ http://HOST:PORT/
 The status board explicitly does not include:
 
 - Write operations beyond the minimal task loop in §11. There is no browser
-  action for claim/lease, RC, verifier outcomes, human decisions, agent
+  action for claim/lease, RC, verifier PASS/reject, human decisions, agent
   startup, or arbitrary tool forwarding, and no drag-and-drop: READY order is
   changed only by the explicit move-up/move-down action, which writes
-  `ready_rank` through the ordinary issue update path.
+  `ready_rank` through the ordinary issue update path. The board also does not
+  enforce an independent verifier, track an RC owner or preferred developer, or
+  model handoff: those remain workflow capabilities, not board states.
 - Authentication or user accounts. It is local-only and has no credential or permission model.
 - Remote or multi-user hosting. It is not designed for deployment on the internet or behind a reverse proxy.
 - Cross-origin requests. CORS is not implemented; only same-origin requests (or requests with no Origin header) are accepted.
@@ -406,12 +412,15 @@ Moving a card recomputes that displayed order and renumbers the bounded READY
 column in steps of 10, writing only the issues whose rank changed. The plan is
 built from the *projected* READY column (`BoardService.ReadyQueue`), not from
 stored status: a stored-`ready` issue that the projection displays as IN
-PROGRESS (active work attempt) or RC (changes requested) is not in the queue
-and is never rewritten. Because the plan uses the same comparator the column is
-rendered with, what the operator saw is what is reordered. Only stored-`ready` issues are read or
-written, so reordering cannot alter any other status's ordering, and a READY
-queue larger than the board's collection limit is refused rather than
-partially reordered.
+PROGRESS (it has an active attempt) is not in the queue and is never rewritten,
+so a task that is actually being worked on never moves in the queue. Because
+the plan uses the same
+comparator the column is rendered with, what the operator saw is what is
+reordered. Only stored-`ready` issues are read or written, so reordering cannot
+alter any other status's ordering, and a READY queue larger than the board's
+collection limit is refused rather than partially reordered, and so is a
+board whose active-attempt read was cut, because a missing attempt would
+hide a card that belongs in IN PROGRESS.
 
 A card that is already first or last is a successful no-op. Every write carries
 the version read in the same request, and the moved card must match the

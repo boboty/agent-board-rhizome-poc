@@ -13,31 +13,31 @@ import (
 type BoardWorkflowColumn string
 
 const (
-	// BoardWorkflowColumnReady holds claimable, not-yet-started work.
+	// BoardWorkflowColumnReady holds work that can be executed right now: it
+	// is admitted to the READY queue and nobody is working on it.
 	BoardWorkflowColumnReady BoardWorkflowColumn = "ready"
-	// BoardWorkflowColumnInProgress holds an issue with an active work attempt.
+	// BoardWorkflowColumnInProgress holds work that is being executed. The
+	// task-level state does not distinguish which internal phase the work is
+	// in (development, verification, changes-requested rework, re-verification):
+	// those are execution detail on the card, not columns.
 	BoardWorkflowColumnInProgress BoardWorkflowColumn = "in_progress"
-	// BoardWorkflowColumnVerifying holds delivery awaiting or undergoing an
-	// independent review.
-	BoardWorkflowColumnVerifying BoardWorkflowColumn = "verifying"
-	// BoardWorkflowColumnRC holds work whose review requested changes and
-	// which no developer or verifier has picked up again yet.
-	BoardWorkflowColumnRC BoardWorkflowColumn = "rc"
-	// BoardWorkflowColumnDecisionRequired holds work stopped by a review
-	// outcome of blocked, i.e. waiting on an authoritative human decision.
-	BoardWorkflowColumnDecisionRequired BoardWorkflowColumn = "decision_required"
 	// BoardWorkflowColumnDone holds completed work.
 	BoardWorkflowColumnDone BoardWorkflowColumn = "done"
+	// BoardWorkflowColumnBlocked holds work that cannot continue without an
+	// external condition, an authoritative human decision, or a later resume.
+	// The specific cause is card detail, never a separate column.
+	BoardWorkflowColumnBlocked BoardWorkflowColumn = "blocked"
 )
 
-// BoardWorkflowColumns is the board's column order, left to right.
+// BoardWorkflowColumns is the board's column order, left to right. These are
+// the only task-level states the board shows; developer, verifier,
+// changes-requested, and handoff phases are internal to a task and never
+// become columns of their own.
 var BoardWorkflowColumns = []BoardWorkflowColumn{
 	BoardWorkflowColumnReady,
 	BoardWorkflowColumnInProgress,
-	BoardWorkflowColumnVerifying,
-	BoardWorkflowColumnRC,
-	BoardWorkflowColumnDecisionRequired,
 	BoardWorkflowColumnDone,
+	BoardWorkflowColumnBlocked,
 }
 
 // Valid reports whether c is a supported workflow column.
@@ -57,14 +57,10 @@ func (c BoardWorkflowColumn) Title() string {
 		return "READY"
 	case BoardWorkflowColumnInProgress:
 		return "IN PROGRESS"
-	case BoardWorkflowColumnVerifying:
-		return "VERIFYING"
-	case BoardWorkflowColumnRC:
-		return "RC"
-	case BoardWorkflowColumnDecisionRequired:
-		return "DECISION REQUIRED"
 	case BoardWorkflowColumnDone:
 		return "DONE"
+	case BoardWorkflowColumnBlocked:
+		return "BLOCKED"
 	default:
 		return string(c)
 	}
@@ -81,10 +77,6 @@ const (
 	// BoardWorkflowReasonNotReady means the issue is stored open, i.e. not yet
 	// admitted to the READY queue.
 	BoardWorkflowReasonNotReady = "not_ready"
-	// BoardWorkflowReasonExternallyBlocked means the issue is stored blocked
-	// without a blocked review outcome, so it is an external condition rather
-	// than an authoritative decision request.
-	BoardWorkflowReasonExternallyBlocked = "externally_blocked"
 	// BoardWorkflowReasonUnknownStatus means the stored status is not one this
 	// projection knows how to place.
 	BoardWorkflowReasonUnknownStatus = "unknown_status"
@@ -124,8 +116,14 @@ type BoardWorkflowCard struct {
 	ReadyRank   *int64 `json:"ready_rank,omitempty"`
 	IsClaimable bool   `json:"is_claimable"`
 
-	// Active-attempt attribution. Populated for IN PROGRESS (a work attempt)
-	// and for VERIFYING when a verifier currently holds a review attempt.
+	// BlockedReason is the stored reason an issue cannot continue. It is card
+	// detail on a BLOCKED card; the board shows what the data says and does not
+	// classify the cause into a column.
+	BlockedReason *string `json:"blocked_reason,omitempty"`
+
+	// Active-attempt attribution. Populated for IN PROGRESS, for a work attempt
+	// and for a review attempt alike: an active verifier is executing the same
+	// task, not moving it to another task-level state.
 	AttemptID           string      `json:"attempt_id,omitempty"`
 	AttemptKind         AttemptKind `json:"attempt_kind,omitempty"`
 	ExecutorLabel       *string     `json:"executor_label,omitempty"`
@@ -136,11 +134,11 @@ type BoardWorkflowCard struct {
 	AttemptStartedAt    *time.Time  `json:"attempt_started_at,omitempty"`
 	LeaseExpiresAt      *time.Time  `json:"lease_expires_at,omitempty"`
 
-	// Review signal. Populated from the issue's newest review request across
-	// every status the board reads (any status except superseded, whose
-	// successor is always newer and read) whenever one exists, so VERIFYING,
-	// RC, DECISION REQUIRED and a reopened READY card all carry the last
-	// recorded decision rather than an obsolete round.
+	// Review signal: execution detail, never a column. Populated from the
+	// issue's newest review request across every status the board reads (any
+	// status except superseded, whose successor is always newer and read)
+	// whenever one exists, so an in-progress, done, blocked, or reopened READY
+	// card all carry the last recorded decision rather than an obsolete round.
 	ReviewRequestID     *string              `json:"review_request_id,omitempty"`
 	ReviewStatus        *ReviewRequestStatus `json:"review_status,omitempty"`
 	ReviewTargetVersion *int64               `json:"review_target_version,omitempty"`
@@ -186,8 +184,11 @@ type BoardWorkflowColumnSummary struct {
 // fed it was cut. A true flag means "only the first MaxBoardCollectionLimit
 // contributing issues are represented", so a card count can be a lower bound.
 type BoardWorkflowTruncation struct {
+	// Ready, Review, Blocked, and Done cover the four stored-status issue
+	// reads that feed the columns; Unprojected covers the open/cancelled read.
 	Ready          bool `json:"ready"`
-	Verifying      bool `json:"verifying"`
+	Review         bool `json:"review"`
+	Blocked        bool `json:"blocked"`
 	Done           bool `json:"done"`
 	Unprojected    bool `json:"unprojected"`
 	ReviewRequests bool `json:"review_requests"`
@@ -203,7 +204,7 @@ type BoardWorkflowTruncation struct {
 
 // Any reports whether any contributing read was cut or degraded.
 func (t BoardWorkflowTruncation) Any() bool {
-	return t.Ready || t.Verifying || t.Done || t.Unprojected || t.ReviewRequests ||
+	return t.Ready || t.Review || t.Blocked || t.Done || t.Unprojected || t.ReviewRequests ||
 		t.DeliveryOverflow || t.DeliveryUnavailable
 }
 
@@ -220,43 +221,37 @@ type BoardWorkflowProjection struct {
 // BoardWorkflowPlacementInput is the derivation input for one issue.
 type BoardWorkflowPlacementInput struct {
 	Issue Issue
-	// ActiveAttempt is the issue's active, unexpired attempt, if any.
+	// ActiveAttempt is the issue's active, unexpired attempt, if any. Its kind
+	// is deliberately not consulted: whether the task is being developed,
+	// verified, or reworked, an active attempt means the task is in progress.
 	ActiveAttempt *ActiveAttemptSummary
-	// LatestReview is the issue's newest review request among the states the
-	// board reads, if any. Its Status is what distinguishes RC (changes
-	// requested) from DECISION REQUIRED (blocked) from an ordinary READY card:
-	// a newer approved or cancelled request must not be shadowed by an older
-	// changes_requested or blocked one.
-	LatestReview *ReviewRequest
 }
 
-// DeriveBoardWorkflowPlacement maps one issue onto at most one workflow
-// column. It returns the column and an empty reason when the issue belongs on
-// the board, or an empty column and a BoardWorkflowReason* code when it does
-// not. It is pure: it reads the supplied projection and never queries, so the
-// board's column assignment cannot drift from the projection rules.
+// DeriveBoardWorkflowPlacement maps one issue onto at most one task-level
+// workflow column. It returns the column and an empty reason when the issue
+// belongs on the board, or an empty column and a BoardWorkflowReason* code
+// when it does not. It is pure: it reads only the supplied issue and active
+// attempt, so the board's column assignment cannot drift from the projection
+// rules, and no review, verification, or changes-requested signal can move a
+// card between columns.
 //
 // The rules, in order, are:
 //
 //  1. archived -> unprojected (archived).
 //  2. done -> DONE.
 //  3. cancelled -> unprojected (cancelled).
-//  4. an active attempt: a work attempt -> IN PROGRESS, a review attempt ->
-//     VERIFYING. This is checked before the stored status because a claimed
-//     issue keeps its stored status while its effective status is derived.
-//  5. stored review -> VERIFYING (delivery is available for review).
-//  6. stored blocked -> DECISION REQUIRED when the latest review resolved to
-//     blocked, otherwise unprojected as an external block. A blocked issue is
-//     never shown in RC: changes_requested moves an issue to ready, so a
-//     blocked issue carrying one was blocked again afterwards.
-//  7. stored ready -> RC when the latest review resolved to
-//     changes_requested, otherwise READY.
+//  4. an active attempt of any kind -> IN PROGRESS. This is checked before the
+//     stored status because a claimed issue keeps its stored status while its
+//     effective status is derived, and because developing, verifying, and
+//     reworking a task are phases of one task-level state.
+//  5. stored review -> IN PROGRESS. The delivery exists and verification is
+//     the task's current phase; whether a verifier holds a review attempt
+//     right now is execution detail.
+//  6. stored blocked -> BLOCKED, whatever caused the block (external
+//     dependency, workflow gate, human decision). The cause is card detail;
+//     the board does not guess which kind it was.
+//  7. stored ready -> READY.
 //  8. anything else -> unprojected with a reason.
-//
-// The stored status is the spine, and the review signal only refines the two
-// states a review outcome can actually produce (ready after
-// changes_requested, blocked after blocked). A review state that no rule
-// claims cannot move a card out of the column its stored status implies.
 func DeriveBoardWorkflowPlacement(input BoardWorkflowPlacementInput) (BoardWorkflowColumn, string) {
 	issue := input.Issue
 	if issue.ArchivedAt != nil {
@@ -269,25 +264,14 @@ func DeriveBoardWorkflowPlacement(input BoardWorkflowPlacementInput) (BoardWorkf
 		return "", BoardWorkflowReasonCancelled
 	}
 	if input.ActiveAttempt != nil {
-		switch input.ActiveAttempt.Kind {
-		case AttemptKindWork:
-			return BoardWorkflowColumnInProgress, ""
-		case AttemptKindReview:
-			return BoardWorkflowColumnVerifying, ""
-		}
+		return BoardWorkflowColumnInProgress, ""
 	}
 	switch issue.Status {
 	case StatusReview:
-		return BoardWorkflowColumnVerifying, ""
+		return BoardWorkflowColumnInProgress, ""
 	case StatusBlocked:
-		if input.LatestReview != nil && input.LatestReview.Status == ReviewRequestStatusBlocked {
-			return BoardWorkflowColumnDecisionRequired, ""
-		}
-		return "", BoardWorkflowReasonExternallyBlocked
+		return BoardWorkflowColumnBlocked, ""
 	case StatusReady:
-		if input.LatestReview != nil && input.LatestReview.Status == ReviewRequestStatusChangesRequested {
-			return BoardWorkflowColumnRC, ""
-		}
 		return BoardWorkflowColumnReady, ""
 	case StatusOpen:
 		return "", BoardWorkflowReasonNotReady
@@ -306,8 +290,6 @@ func BoardWorkflowUnprojectedDetail(reason string) string {
 		return "Cancelled; not part of the active workflow board."
 	case BoardWorkflowReasonNotReady:
 		return "Stored open: not yet admitted to the READY queue."
-	case BoardWorkflowReasonExternallyBlocked:
-		return "Stored blocked without a blocked review outcome: an external condition, not an authoritative decision request."
 	case BoardWorkflowReasonUnknownStatus:
 		return "Stored status is not part of the Agent Board workflow projection."
 	default:

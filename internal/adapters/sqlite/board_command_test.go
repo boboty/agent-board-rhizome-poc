@@ -278,9 +278,9 @@ func TestBoardCommandServiceQueueOnlyAcceptsOpenTasks(t *testing.T) {
 	}
 }
 
-// TestBoardCommandServiceReordersOnlyVisibleReadyCards pins the fix for the
-// worst AB-4 defect: the READY column is a projection, so a stored-ready issue
-// displayed as IN PROGRESS or RC is not in the queue. A reorder must plan over
+// TestBoardCommandServiceReordersOnlyVisibleReadyCards pins the worst AB-4
+// defect: the READY column is a projection, so a stored-ready issue displayed
+// as IN PROGRESS is not in the queue. A reorder must plan over
 // the displayed cards only and must never rewrite the rank or version of a
 // card the operator could not see.
 func TestBoardCommandServiceReordersOnlyVisibleReadyCards(t *testing.T) {
@@ -312,7 +312,7 @@ func TestBoardCommandServiceReordersOnlyVisibleReadyCards(t *testing.T) {
 	second := create("Visible second", 30)
 
 	// The projection shows only the two visible cards; `hidden` is displayed as
-	// IN PROGRESS (or RC), so it is not part of the READY queue.
+	// IN PROGRESS (it is claimed), so it is not part of the READY queue.
 	visible := func(t *testing.T) []domain.BoardWorkflowCard {
 		t.Helper()
 		cards := make([]domain.BoardWorkflowCard, 0, 2)

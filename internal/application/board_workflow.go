@@ -37,8 +37,11 @@ type boardDeliveryReferenceReader interface {
 type boardWorkflowSources struct {
 	readyIssues   []domain.IssueProjection
 	reviewIssues  []domain.IssueProjection
+	blockedIssues []domain.IssueProjection
 	doneIssues    []domain.IssueProjection
 	restIssues    []domain.IssueProjection
+	// reviewByIssue is card detail only: no placement rule reads it, so a
+	// review outcome can never move a card between task-level columns.
 	reviewByIssue map[string]reviewSignal
 	truncation    domain.BoardWorkflowTruncation
 }
@@ -64,7 +67,13 @@ func (service *BoardService) collectBoardWorkflowSources(ctx context.Context, op
 	if err != nil {
 		return boardWorkflowSources{}, err
 	}
-	sources.reviewIssues, sources.truncation.Verifying = reviewIssues.Items, reviewIssues.HasMore
+	sources.reviewIssues, sources.truncation.Review = reviewIssues.Items, reviewIssues.HasMore
+
+	blockedIssues, err := service.listIssuesByStatuses(ctx, []domain.Status{domain.StatusBlocked})
+	if err != nil {
+		return boardWorkflowSources{}, err
+	}
+	sources.blockedIssues, sources.truncation.Blocked = blockedIssues.Items, blockedIssues.HasMore
 
 	doneIssues, err := service.listIssuesByStatuses(ctx, []domain.Status{domain.StatusDone})
 	if err != nil {
@@ -72,21 +81,21 @@ func (service *BoardService) collectBoardWorkflowSources(ctx context.Context, op
 	}
 	sources.doneIssues, sources.truncation.Done = doneIssues.Items, doneIssues.HasMore
 
-	// Open, blocked, and cancelled issues never reach a workflow column, but
-	// the board reports them as unprojected rather than dropping them
-	// silently. Archived issues are excluded here as they are everywhere else
-	// on the board (the issue read filters archived_at IS NULL), so the
-	// archived guard in the projection is a defensive branch for direct
-	// callers rather than a state this read can produce.
-	restIssues, err := service.listIssuesByStatuses(ctx, []domain.Status{domain.StatusOpen, domain.StatusBlocked, domain.StatusCancelled})
+	// Open and cancelled issues never reach a workflow column, but the board
+	// reports them as unprojected rather than dropping them silently.
+	// Archived issues are excluded here as they are everywhere else on the
+	// board (the issue read filters archived_at IS NULL), so the archived
+	// guard in the projection is a defensive branch for direct callers rather
+	// than a state this read can produce.
+	restIssues, err := service.listIssuesByStatuses(ctx, []domain.Status{domain.StatusOpen, domain.StatusCancelled})
 	if err != nil {
 		return boardWorkflowSources{}, err
 	}
 	sources.restIssues, sources.truncation.Unprojected = restIssues.Items, restIssues.HasMore
 
-	// Review requests carry the RC / DECISION REQUIRED / VERIFYING signal. The
-	// open page is already loaded by GetBoard, so it is passed in rather than
-	// re-read.
+	// Review requests are read as card detail (latest status, changes-requested
+	// count); placement never consults them. The open page is already loaded by
+	// GetBoard, so it is passed in rather than re-read.
 	requests, truncated, err := service.collectWorkflowReviewRequests(ctx, openReviews)
 	if err != nil {
 		return boardWorkflowSources{}, err
@@ -117,9 +126,8 @@ func (service *BoardService) listIssuesByStatuses(ctx context.Context, statuses 
 // terminal for their round, because an issue can be reopened (done -> ready is
 // a legal transition) or have a request withdrawn, leaving an older
 // changes_requested or blocked request in the database. Skipping the newer
-// decision would make that older request look like the newest one and place
-// the card in RC or DECISION REQUIRED after the last real decision was the
-// opposite.
+// decision would show a stale round as the card's latest review detail after
+// the last real decision was the opposite.
 func (service *BoardService) collectWorkflowReviewRequests(ctx context.Context, openReviews []domain.ReviewRequest) ([]domain.ReviewRequest, bool, error) {
 	requests := make([]domain.ReviewRequest, 0, len(openReviews)+6*domain.MaxBoardCollectionLimit)
 	requests = append(requests, openReviews...)
@@ -191,9 +199,9 @@ func (service *BoardService) buildBoardWorkflow(ctx context.Context, sources boa
 	}
 
 	candidates := make([]domain.IssueProjection, 0,
-		len(sources.readyIssues)+len(sources.reviewIssues)+len(sources.doneIssues)+len(sources.restIssues))
+		len(sources.readyIssues)+len(sources.reviewIssues)+len(sources.blockedIssues)+len(sources.doneIssues)+len(sources.restIssues))
 	seen := make(map[string]struct{})
-	for _, group := range [][]domain.IssueProjection{sources.readyIssues, sources.reviewIssues, sources.doneIssues, sources.restIssues} {
+	for _, group := range [][]domain.IssueProjection{sources.readyIssues, sources.reviewIssues, sources.blockedIssues, sources.doneIssues, sources.restIssues} {
 		for _, issue := range group {
 			if _, exists := seen[issue.ID]; exists {
 				continue
@@ -217,10 +225,11 @@ func (service *BoardService) buildBoardWorkflow(ctx context.Context, sources boa
 			latestReview = &review
 			rounds = signal.changesRequestedRounds
 		}
+		// Placement reads the stored status and the active attempt only; the
+		// review signal below is attached to the card as detail.
 		column, reason := domain.DeriveBoardWorkflowPlacement(domain.BoardWorkflowPlacementInput{
 			Issue:         issue.Issue,
 			ActiveAttempt: attempt,
-			LatestReview:  latestReview,
 		})
 		if column == "" {
 			unprojected = append(unprojected, domain.BoardWorkflowUnprojected{
@@ -250,6 +259,9 @@ func buildBoardWorkflowCard(issue domain.IssueProjection, column domain.BoardWor
 	}
 	if column == domain.BoardWorkflowColumnReady {
 		card.ReadyRank = boardInt64Pointer(issue.ReadyRank)
+	}
+	if column == domain.BoardWorkflowColumnBlocked {
+		card.BlockedReason = copyOptionalString(issue.BlockedReason)
 	}
 	if attempt != nil {
 		started := attempt.StartedAt.UTC()
@@ -284,8 +296,10 @@ func buildBoardWorkflowCard(issue domain.IssueProjection, column domain.BoardWor
 }
 
 // attachDeliveryReferences fills in delivery references for every card that
-// can have one. READY cards have no attempt and no delivery yet, so they are
-// skipped. It returns whether any card shows fewer references than its issue
+// can have one. A READY card that has never been reviewed has no attempt and
+// no delivery yet, so it is skipped; a READY card carrying review history
+// (sent back for changes, or reopened after a review) keeps the delivery
+// references its earlier round produced, exactly as the retired RC card did. It returns whether any card shows fewer references than its issue
 // has (the per-card cap cut the list, or the artifact read was itself
 // truncated) and whether any card's references could not be read.
 //
@@ -297,7 +311,7 @@ func attachDeliveryReferences(ctx context.Context, cards []domain.BoardWorkflowC
 	overflow := false
 	unavailable := false
 	for index := range cards {
-		if cards[index].Column == domain.BoardWorkflowColumnReady {
+		if cards[index].Column == domain.BoardWorkflowColumnReady && cards[index].ReviewRequestID == nil {
 			continue
 		}
 		artifacts, truncated, err := reader.IssueDeliveryReferences(ctx, cards[index].IssueID)

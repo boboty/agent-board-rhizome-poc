@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
+	"sort"
 	"strconv"
 	"strings"
 	"testing"
@@ -12,7 +13,7 @@ import (
 )
 
 // boardWorkflowFixture returns one otherwise-rich board whose new workflow
-// projection carries exactly one card in each of the six columns, one
+// projection carries one card for every task-level column state, one
 // deliberately unprojected issue, and every pre-existing board collection
 // populated. The HTML, JSON, table, and ETag surfaces all read this fixture so
 // the additive workflow field is checked against the same state everywhere.
@@ -48,8 +49,8 @@ func boardWorkflowFixture() domain.BoardResult {
 			Delivery: []domain.BoardDeliveryReference{{Type: domain.ArtifactTypeCommit, URI: "abc1234", Title: &commitTitle}},
 		},
 		{
-			Column: domain.BoardWorkflowColumnVerifying, IssueID: "issue-103", IssueDisplayID: "ISSUE-103",
-			Title: "Verifying card", Type: domain.TypeTask, Priority: domain.PriorityMedium,
+			Column: domain.BoardWorkflowColumnInProgress, IssueID: "issue-103", IssueDisplayID: "ISSUE-103",
+			Title: "Under review card", Type: domain.TypeTask, Priority: domain.PriorityMedium,
 			StoredStatus: domain.StatusReview,
 			AttemptID:    "attempt-review", AttemptKind: domain.AttemptKindReview,
 			ExecutorLabel:   &verifierLabel,
@@ -57,15 +58,16 @@ func boardWorkflowFixture() domain.BoardResult {
 			ReviewTargetVersion: &targetVersion, ReviewRequestedAt: &requestedAt,
 		},
 		{
-			Column: domain.BoardWorkflowColumnRC, IssueID: "issue-104", IssueDisplayID: "ISSUE-104",
-			Title: "Changes requested card", Type: domain.TypeBug, Priority: domain.PriorityCritical,
+			Column: domain.BoardWorkflowColumnReady, IssueID: "issue-104", IssueDisplayID: "ISSUE-104",
+			Title: "Rework-ready card", Type: domain.TypeBug, Priority: domain.PriorityCritical,
 			StoredStatus:    domain.StatusReady,
 			ReviewRequestID: &reviewChangesID, ReviewStatus: &reviewChanges, ChangesRequestedCount: 2,
 		},
 		{
-			Column: domain.BoardWorkflowColumnDecisionRequired, IssueID: "issue-105", IssueDisplayID: "ISSUE-105",
-			Title: "Decision required card", Type: domain.TypeTask, Priority: domain.PriorityLow,
+			Column: domain.BoardWorkflowColumnBlocked, IssueID: "issue-105", IssueDisplayID: "ISSUE-105",
+			Title: "Blocked card", Type: domain.TypeTask, Priority: domain.PriorityLow,
 			StoredStatus:    domain.StatusBlocked,
+			BlockedReason:   strPtr("blocked review outcome"),
 			ReviewRequestID: &reviewBlockedID, ReviewStatus: &reviewBlocked,
 		},
 		{
@@ -106,7 +108,7 @@ func boardWorkflowFixture() domain.BoardResult {
 		}},
 		BlockedIssues: []domain.IssueProjection{{
 			Issue: domain.Issue{
-				ID: "issue-105", DisplayID: "ISSUE-105", Title: "Decision required card",
+				ID: "issue-105", DisplayID: "ISSUE-105", Title: "Blocked card",
 				Status: domain.StatusBlocked, BlockedReason: strPtr("blocked review outcome"),
 			},
 			EffectiveStatus: domain.EffectiveStatusBlocked,
@@ -193,7 +195,7 @@ func workflowCardByIssue(t *testing.T, response BoardResponse, issueDisplayID st
 }
 
 // TestBoardWorkflowKanbanRendersEveryColumnAndCard pins that both the offline
-// snapshot and the served page render the projection as a six-column Kanban:
+// snapshot and the served page render the projection as a four-column Kanban:
 // every column heading is present, every card shows its issue label and title,
 // and the rendered card count matches the projection. The empty-column case is
 // asserted separately because a column with no cards must still show its
@@ -207,8 +209,8 @@ func TestBoardWorkflowKanbanRendersEveryColumnAndCard(t *testing.T) {
 			if err != nil {
 				t.Fatalf("%s render error = %v", renderer.name, err)
 			}
-			for _, column := range domain.BoardWorkflowColumns {
-				heading := kanbanHeading(column.Title(), 1)
+			for _, column := range result.Workflow.Columns {
+				heading := kanbanHeading(column.Title, column.Count)
 				if !strings.Contains(page, heading) {
 					t.Fatalf("%s page is missing column heading %q", renderer.name, heading)
 				}
@@ -255,8 +257,8 @@ func TestBoardWorkflowKanbanRendersEveryColumnAndCard(t *testing.T) {
 					t.Fatalf("%s page is missing empty-column heading %q", renderer.name, heading)
 				}
 			}
-			if got := strings.Count(page, "No cards."); got != 5 {
-				t.Fatalf("%s page empty-column placeholder count = %d, want 5", renderer.name, got)
+			if got := strings.Count(page, "No cards."); got != 3 {
+				t.Fatalf("%s page empty-column placeholder count = %d, want 3", renderer.name, got)
 			}
 		}
 	})
@@ -340,19 +342,25 @@ func TestBoardWorkflowDegradesWithoutAttemptOrReview(t *testing.T) {
 
 // TestBoardWorkflowCLIJSONProjectionIsAdditive pins that
 // boardResponseFromDomain carries the workflow faithfully while leaving the
-// pre-existing board contract untouched: all six columns with counts, one card
-// per issue in the right column, optional fields omitted when absent, and the
-// older collections still populated.
+// pre-existing board contract untouched: all four task-level columns with
+// counts, one card per issue in the right column, optional fields omitted when
+// absent, and the older collections still populated.
 func TestBoardWorkflowCLIJSONProjectionIsAdditive(t *testing.T) {
 	response := boardResponseFromDomain(boardWorkflowFixture())
 
 	if len(response.Workflow.Columns) != len(domain.BoardWorkflowColumns) {
 		t.Fatalf("workflow columns = %d, want %d", len(response.Workflow.Columns), len(domain.BoardWorkflowColumns))
 	}
+	wantCounts := map[domain.BoardWorkflowColumn]int{
+		domain.BoardWorkflowColumnReady:      2,
+		domain.BoardWorkflowColumnInProgress: 2,
+		domain.BoardWorkflowColumnDone:       1,
+		domain.BoardWorkflowColumnBlocked:    1,
+	}
 	for index, column := range domain.BoardWorkflowColumns {
 		got := response.Workflow.Columns[index]
-		if got.Column != string(column) || got.Title != column.Title() || got.Count != 1 {
-			t.Fatalf("workflow column[%d] = %#v, want column %q title %q count 1", index, got, column, column.Title())
+		if got.Column != string(column) || got.Title != column.Title() || got.Count != wantCounts[column] {
+			t.Fatalf("workflow column[%d] = %#v, want column %q title %q count %d", index, got, column, column.Title(), wantCounts[column])
 		}
 	}
 	if len(response.Workflow.Cards) != 6 {
@@ -361,9 +369,9 @@ func TestBoardWorkflowCLIJSONProjectionIsAdditive(t *testing.T) {
 	wantColumns := map[string]string{
 		"ISSUE-101": string(domain.BoardWorkflowColumnReady),
 		"ISSUE-102": string(domain.BoardWorkflowColumnInProgress),
-		"ISSUE-103": string(domain.BoardWorkflowColumnVerifying),
-		"ISSUE-104": string(domain.BoardWorkflowColumnRC),
-		"ISSUE-105": string(domain.BoardWorkflowColumnDecisionRequired),
+		"ISSUE-103": string(domain.BoardWorkflowColumnInProgress),
+		"ISSUE-104": string(domain.BoardWorkflowColumnReady),
+		"ISSUE-105": string(domain.BoardWorkflowColumnBlocked),
 		"ISSUE-106": string(domain.BoardWorkflowColumnDone),
 	}
 	for issue, wantColumn := range wantColumns {
@@ -382,6 +390,23 @@ func TestBoardWorkflowCLIJSONProjectionIsAdditive(t *testing.T) {
 	}
 	if work.AttemptKind != string(domain.AttemptKindWork) || len(work.Delivery) != 1 || work.Delivery[0].URI != "abc1234" {
 		t.Fatalf("attributed workflow card attempt/delivery = %#v", work)
+	}
+
+	// AB-5: review and RC state reach the client as card detail, never as a
+	// column, and a BLOCKED card carries the stored reason.
+	rework := workflowCardByIssue(t, response, "ISSUE-104")
+	if rework.ReviewStatus == nil || *rework.ReviewStatus != string(domain.ReviewRequestStatusChangesRequested) ||
+		rework.ChangesRequestedCount != 2 {
+		t.Fatalf("rework-ready card review detail = %#v", rework)
+	}
+	underReview := workflowCardByIssue(t, response, "ISSUE-103")
+	if underReview.AttemptKind != string(domain.AttemptKindReview) || underReview.ReviewStatus == nil ||
+		*underReview.ReviewStatus != string(domain.ReviewRequestStatusOpen) {
+		t.Fatalf("under-review card execution detail = %#v", underReview)
+	}
+	blockedCard := workflowCardByIssue(t, response, "ISSUE-105")
+	if blockedCard.BlockedReason == nil || *blockedCard.BlockedReason != "blocked review outcome" {
+		t.Fatalf("BLOCKED card reason = %#v, want the stored reason", blockedCard)
 	}
 
 	ready := workflowCardByIssue(t, response, "ISSUE-101")
@@ -460,17 +485,20 @@ func TestBoardWorkflowCLITableHasWorkflowSection(t *testing.T) {
 	if !strings.Contains(table, columnHeader) {
 		t.Fatalf("board table is missing workflow column header %q:\n%s", columnHeader, table)
 	}
-	cardHeader := "column\tissue\ttitle\tpriority\tready_rank\tattempt\texecutor\tclient\tmodel\tworktree\treview_status\tchanges_requested\tcommit"
+	cardHeader := "column\tissue\ttitle\tpriority\tready_rank\tattempt\texecutor\tclient\tmodel\tworktree\treview_status\tchanges_requested\tblocked_reason\tcommit"
 	if !strings.Contains(table, cardHeader) {
 		t.Fatalf("board table is missing workflow card header %q:\n%s", cardHeader, table)
 	}
-	wantRow := "in_progress\tISSUE-102\tIn progress card\thigh\t\twork\tLuna\tCodex CLI\tgpt-5\t/tmp/wt/ISSUE-102\t\t\tcommit abc1234"
+	wantRow := "in_progress\tISSUE-102\tIn progress card\thigh\t\twork\tLuna\tCodex CLI\tgpt-5\t/tmp/wt/ISSUE-102\t\t\t\tcommit abc1234"
 	if !strings.Contains(table, wantRow) {
 		t.Fatalf("board table is missing workflow card row %q:\n%s", wantRow, table)
 	}
-	wantReadyRow := "ready\tISSUE-101\tReady card\tmedium\t3\t\t\t\t\t\t\t\t"
+	wantReadyRow := "ready\tISSUE-101\tReady card\tmedium\t3\t\t\t\t\t\t\t\t\t"
 	if !strings.Contains(table, wantReadyRow) {
 		t.Fatalf("board table is missing READY card row %q:\n%s", wantReadyRow, table)
+	}
+	if !strings.Contains(table, "blocked\tISSUE-105\tBlocked card\tlow\t\t\t\t\t\t\tblocked\t\tblocked review outcome\t") {
+		t.Fatalf("board table is missing the BLOCKED card with its reason:\n%s", table)
 	}
 	if !strings.Contains(table, "ISSUE-900\topen\tnot_ready\tStored open: not yet admitted to the READY queue.") {
 		t.Fatalf("board table is missing the not-projected row:\n%s", table)
@@ -531,7 +559,43 @@ func TestBoardWorkflowETagTracksCardColumnMove(t *testing.T) {
 
 	// Reverse the move to prove the difference is the column, not an
 	// incidental ordering or allocation difference between two calls.
-	if semanticBoardETag(moved) == semanticBoardETag(boardWorkflowMoveBoard(domain.BoardWorkflowColumnRC)) {
-		t.Fatal("semanticBoardETag ignored a card moving from in_progress to rc")
+	if semanticBoardETag(moved) == semanticBoardETag(boardWorkflowMoveBoard(domain.BoardWorkflowColumnBlocked)) {
+		t.Fatal("semanticBoardETag ignored a card moving from in_progress to blocked")
+	}
+}
+
+// TestBoardWorkflowTruncationJSONKeysAreTheContract pins the exact
+// workflow.truncation key set. Without it a retired name (the AB-3
+// `verifying`) could return as a silent addition, or a real one be renamed,
+// without any test noticing.
+func TestBoardWorkflowTruncationJSONKeysAreTheContract(t *testing.T) {
+	encoded, err := json.Marshal(boardResponseFromDomain(boardWorkflowFixture()))
+	if err != nil {
+		t.Fatalf("marshal board response: %v", err)
+	}
+	var payload struct {
+		Workflow struct {
+			Truncation map[string]json.RawMessage `json:"truncation"`
+		} `json:"workflow"`
+	}
+	if err := json.Unmarshal(encoded, &payload); err != nil {
+		t.Fatalf("decode workflow truncation: %v", err)
+	}
+	keys := make([]string, 0, len(payload.Workflow.Truncation))
+	for key := range payload.Workflow.Truncation {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	want := []string{
+		"blocked", "delivery_overflow", "delivery_unavailable", "done",
+		"ready", "review", "review_requests", "unprojected",
+	}
+	if len(keys) != len(want) {
+		t.Fatalf("workflow.truncation keys = %v, want %v", keys, want)
+	}
+	for index := range want {
+		if keys[index] != want[index] {
+			t.Fatalf("workflow.truncation keys = %v, want %v", keys, want)
+		}
 	}
 }

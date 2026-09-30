@@ -23,11 +23,18 @@ Normal flow:
 
 ```text
 READY
-  -> Developer execution
-  -> verification
-      -> PASS -> DONE
+  -> Developer execution                        (task state: IN PROGRESS)
+  -> verification                               (task state: IN PROGRESS)
+      -> PASS -> DONE                           (task state: DONE)
       -> RC   -> Developer correction -> new verification
+                                                (READY while the rework is
+                                                 unclaimed, IN PROGRESS while
+                                                 it runs)
       -> DECISION REQUIRED -> human decision -> resume or close
+                                                (task state: BLOCKED)
 ```
+
+The Agent Board shows the four task-level states in parentheses. Verification,
+RC, and decision phases are execution detail inside a task, not board columns.
 
 The standard remains independent of any specific coding agent, harness, model provider, or effort level.

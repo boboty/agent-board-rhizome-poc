@@ -719,15 +719,16 @@ type boardWorkflowViewModel struct {
 	HasUnprojected bool
 	// Write controls live inside this section template, so the token and the
 	// enabled flag travel with the workflow view model rather than the page.
-	CSRFToken            string
-	WritesEnabled        bool
-	ReadyTruncated       bool
-	VerifyingTruncated   bool
-	DoneTruncated        bool
-	ReviewTruncated      bool
-	UnprojectedTruncated bool
-	DeliveryTruncated    bool
-	DeliveryUnavailable  bool
+	CSRFToken             string
+	WritesEnabled         bool
+	ReadyTruncated        bool
+	BlockedTruncated      bool
+	DoneTruncated         bool
+	StoredReviewTruncated bool
+	ReviewTruncated       bool
+	UnprojectedTruncated  bool
+	DeliveryTruncated     bool
+	DeliveryUnavailable   bool
 }
 
 type boardWorkflowColumnViewModel struct {
@@ -751,6 +752,9 @@ type boardWorkflowCardViewModel struct {
 	Version      int64
 	HasReadyRank bool
 	ReadyRank    string
+	// BlockedReason is the stored reason a BLOCKED card cannot continue.
+	HasBlockedReason bool
+	BlockedReason    string
 	// CanReorder is true only for a READY card on a writable board: the rank
 	// buttons rewrite ready_rank, which is the READY column's ordering key.
 	CanReorder bool
@@ -809,17 +813,18 @@ func newBoardWorkflowViewModel(workflow domain.BoardWorkflowProjection, linkIssu
 		cardsByColumn[card.Column] = append(cardsByColumn[card.Column], newBoardWorkflowCardViewModel(card, linkIssues, writesEnabled))
 	}
 	vm := boardWorkflowViewModel{
-		CSRFToken:            csrfToken,
-		WritesEnabled:        writesEnabled,
-		Columns:              make([]boardWorkflowColumnViewModel, 0, len(workflow.Columns)),
-		Unprojected:          make([]boardWorkflowUnprojectedViewModel, 0, len(workflow.Unprojected)),
-		ReadyTruncated:       workflow.Truncation.Ready,
-		VerifyingTruncated:   workflow.Truncation.Verifying,
-		DoneTruncated:        workflow.Truncation.Done,
-		ReviewTruncated:      workflow.Truncation.ReviewRequests,
-		UnprojectedTruncated: workflow.Truncation.Unprojected,
-		DeliveryTruncated:    workflow.Truncation.DeliveryOverflow,
-		DeliveryUnavailable:  workflow.Truncation.DeliveryUnavailable,
+		CSRFToken:             csrfToken,
+		WritesEnabled:         writesEnabled,
+		Columns:               make([]boardWorkflowColumnViewModel, 0, len(workflow.Columns)),
+		Unprojected:           make([]boardWorkflowUnprojectedViewModel, 0, len(workflow.Unprojected)),
+		ReadyTruncated:        workflow.Truncation.Ready,
+		StoredReviewTruncated: workflow.Truncation.Review,
+		BlockedTruncated:      workflow.Truncation.Blocked,
+		DoneTruncated:         workflow.Truncation.Done,
+		ReviewTruncated:       workflow.Truncation.ReviewRequests,
+		UnprojectedTruncated:  workflow.Truncation.Unprojected,
+		DeliveryTruncated:     workflow.Truncation.DeliveryOverflow,
+		DeliveryUnavailable:   workflow.Truncation.DeliveryUnavailable,
 	}
 	for _, column := range workflow.Columns {
 		cards := cardsByColumn[column.Column]
@@ -873,6 +878,10 @@ func newBoardWorkflowCardViewModel(card domain.BoardWorkflowCard, linkIssues boo
 	if card.ReadyRank != nil {
 		vm.HasReadyRank = true
 		vm.ReadyRank = strconv.FormatInt(*card.ReadyRank, 10)
+	}
+	if card.BlockedReason != nil && strings.TrimSpace(*card.BlockedReason) != "" {
+		vm.HasBlockedReason = true
+		vm.BlockedReason = strings.TrimSpace(*card.BlockedReason)
 	}
 	if card.AttemptID != "" {
 		vm.HasAttempt = true

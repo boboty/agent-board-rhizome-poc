@@ -118,7 +118,7 @@ func TestBoardWorkflowTruncationFlagsReachEverySurface(t *testing.T) {
 		}},
 		[]domain.BoardWorkflowUnprojected{},
 		domain.BoardWorkflowTruncation{
-			Ready: true, Verifying: true, Done: true, Unprojected: true,
+			Ready: true, Review: true, Blocked: true, Done: true, Unprojected: true,
 			ReviewRequests: true, DeliveryOverflow: true, DeliveryUnavailable: true,
 		},
 	)}
@@ -131,7 +131,8 @@ func TestBoardWorkflowTruncationFlagsReachEverySurface(t *testing.T) {
 	writeBoardWorkflowTable(&builder, board.Workflow)
 	table := builder.String()
 	for _, want := range []string{
-		"READY cards cut", "VERIFYING cards cut", "DONE cards cut", "review signals cut",
+		"READY cards cut", "IN PROGRESS cards from stored review cut", "BLOCKED cards cut",
+		"DONE cards cut", "review signals cut",
 		"first 100 shown", "fewer delivery references", "could not be read",
 	} {
 		if !strings.Contains(table, want) {
@@ -149,7 +150,8 @@ func TestBoardWorkflowTruncationFlagsReachEverySurface(t *testing.T) {
 	}
 	for name, html := range map[string]string{"static": staticHTML, "served": servedHTML} {
 		for _, want := range []string{
-			"READY cards are cut", "VERIFYING cards are cut", "DONE cards are cut",
+			"READY cards are cut", "IN PROGRESS cards read from stored review are cut",
+			"BLOCKED cards are cut", "DONE cards are cut",
 			"Review signals are cut", "more delivery references", "could not be read",
 		} {
 			if !strings.Contains(html, want) {
@@ -160,8 +162,9 @@ func TestBoardWorkflowTruncationFlagsReachEverySurface(t *testing.T) {
 
 	response := boardResponseFromDomain(board)
 	truncation := response.Workflow.Truncation
-	if !truncation.Ready || !truncation.Verifying || !truncation.Done || !truncation.Unprojected ||
-		!truncation.ReviewRequests || !truncation.DeliveryOverflow || !truncation.DeliveryUnavailable {
+	if !truncation.Ready || !truncation.Review || !truncation.Blocked || !truncation.Done ||
+		!truncation.Unprojected || !truncation.ReviewRequests || !truncation.DeliveryOverflow ||
+		!truncation.DeliveryUnavailable {
 		t.Fatalf("JSON truncation = %#v, want every flag set", truncation)
 	}
 }

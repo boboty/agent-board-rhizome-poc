@@ -95,8 +95,9 @@ type MoveBoardReadyTaskResult struct {
 
 // boardReadyQueueReader returns the READY column as the board displays it
 // (satisfied by *BoardService). Reordering must plan from this projection
-// rather than from stored status: a stored-ready issue can be shown as IN
-// PROGRESS or RC, and the operator cannot reorder a card they cannot see.
+// rather than from stored status: a stored-ready issue with an active attempt
+// is shown as IN PROGRESS, and the operator cannot reorder a card they cannot
+// see.
 type boardReadyQueueReader interface {
 	ReadyQueue(context.Context) (ReadyQueueSnapshot, error)
 }
@@ -204,7 +205,7 @@ func (service *BoardCommandService) MoveTaskToReady(ctx context.Context, input M
 // The plan is built from the card set and the comparator the board's READY
 // column uses (BoardService.ReadyQueue + domain.CompareReadyQueue), so what the
 // operator saw is what is reordered: a stored-ready issue displayed as IN
-// PROGRESS or RC is not part of the queue. Only those cards' ready_rank
+// PROGRESS is not part of the queue. Only those cards' ready_rank
 // changes, so reordering can never alter another status's ordering.
 //
 // Every write carries the version read in this call, and the moved card must

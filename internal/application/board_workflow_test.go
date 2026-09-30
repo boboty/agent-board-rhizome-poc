@@ -63,34 +63,41 @@ func workflowBoardFixture(t *testing.T, now time.Time) (*BoardService, *boardStu
 
 	ready := []domain.IssueProjection{
 		workflowProjectionIssue("issue-10", "ISSUE-10", domain.StatusReady, domain.PriorityHigh),   // active work attempt -> IN PROGRESS
-		workflowProjectionIssue("issue-20", "ISSUE-20", domain.StatusReady, domain.PriorityMedium), // changes requested -> RC
+		workflowProjectionIssue("issue-20", "ISSUE-20", domain.StatusReady, domain.PriorityMedium), // changes_requested is card detail -> READY
 		workflowProjectionIssue("issue-21", "ISSUE-21", domain.StatusReady, domain.PriorityMedium), // -> READY
 		workflowProjectionIssue("issue-22", "ISSUE-22", domain.StatusReady, domain.PriorityLow),    // -> READY
 	}
 	rank := int64(4)
 	ready[2].ReadyRank = &rank
 	review := []domain.IssueProjection{
-		workflowProjectionIssue("issue-30", "ISSUE-30", domain.StatusReview, domain.PriorityHigh),   // active review attempt -> VERIFYING
-		workflowProjectionIssue("issue-31", "ISSUE-31", domain.StatusReview, domain.PriorityMedium), // -> VERIFYING
+		workflowProjectionIssue("issue-30", "ISSUE-30", domain.StatusReview, domain.PriorityHigh),   // active review attempt -> IN PROGRESS
+		workflowProjectionIssue("issue-31", "ISSUE-31", domain.StatusReview, domain.PriorityMedium), // -> IN PROGRESS
 	}
 	done := []domain.IssueProjection{
 		workflowProjectionIssue("issue-40", "ISSUE-40", domain.StatusDone, domain.PriorityLow),
 	}
+	blocked := []domain.IssueProjection{
+		workflowProjectionIssue("issue-50", "ISSUE-50", domain.StatusBlocked, domain.PriorityHigh), // blocked review -> BLOCKED
+		workflowProjectionIssue("issue-60", "ISSUE-60", domain.StatusBlocked, domain.PriorityLow),  // external block -> BLOCKED
+	}
+	decision := "product decision required"
+	external := "waiting on the vendor API"
+	blocked[0].BlockedReason = &decision
+	blocked[1].BlockedReason = &external
 	rest := []domain.IssueProjection{
-		workflowProjectionIssue("issue-50", "ISSUE-50", domain.StatusBlocked, domain.PriorityHigh), // blocked review -> DECISION REQUIRED
-		workflowProjectionIssue("issue-60", "ISSUE-60", domain.StatusBlocked, domain.PriorityLow),  // external block -> unprojected
-		workflowProjectionIssue("issue-70", "ISSUE-70", domain.StatusOpen, domain.PriorityLow),     // not ready -> unprojected
+		workflowProjectionIssue("issue-70", "ISSUE-70", domain.StatusOpen, domain.PriorityLow), // not ready -> unprojected
 	}
 
 	issueRepo := &boardRecordingIssueRepository{
 		countResult: []domain.EffectiveStatusCount{{EffectiveStatus: domain.EffectiveStatusReady, Count: 6}},
 		listResult:  domain.IssueList{Items: rest},
 		listResultsByStatus: map[domain.Status]domain.IssueList{
-			domain.StatusReady:  {Items: ready},
-			domain.StatusReview: {Items: review},
-			domain.StatusDone:   {Items: done},
+			domain.StatusReady:   {Items: ready},
+			domain.StatusReview:  {Items: review},
+			domain.StatusBlocked: {Items: blocked},
+			domain.StatusDone:    {Items: done},
 		},
-		blockedResult: &domain.IssueList{Items: []domain.IssueProjection{rest[0]}},
+		blockedResult: &domain.IssueList{Items: []domain.IssueProjection{blocked[0]}},
 	}
 	attemptRepo := &boardRecordingAttemptRepository{listResult: domain.ActiveAttemptList{Items: []domain.ActiveAttemptSummary{
 		workflowProjectionAttempt("attempt-10", "issue-10", "ISSUE-10", domain.AttemptKindWork, now),
@@ -139,12 +146,10 @@ func TestBoardServiceWorkflowProjectsRealStateOntoColumns(t *testing.T) {
 		cardsByColumn[card.Column] = append(cardsByColumn[card.Column], card.IssueDisplayID)
 	}
 	want := map[domain.BoardWorkflowColumn][]string{
-		domain.BoardWorkflowColumnReady:            {"ISSUE-21", "ISSUE-22"},
-		domain.BoardWorkflowColumnInProgress:       {"ISSUE-10"},
-		domain.BoardWorkflowColumnVerifying:        {"ISSUE-30", "ISSUE-31"},
-		domain.BoardWorkflowColumnRC:               {"ISSUE-20"},
-		domain.BoardWorkflowColumnDecisionRequired: {"ISSUE-50"},
-		domain.BoardWorkflowColumnDone:             {"ISSUE-40"},
+		domain.BoardWorkflowColumnReady:      {"ISSUE-20", "ISSUE-21", "ISSUE-22"},
+		domain.BoardWorkflowColumnInProgress: {"ISSUE-10", "ISSUE-30", "ISSUE-31"},
+		domain.BoardWorkflowColumnDone:       {"ISSUE-40"},
+		domain.BoardWorkflowColumnBlocked:    {"ISSUE-50", "ISSUE-60"},
 	}
 	for column, wantIssues := range want {
 		got := cardsByColumn[column]
@@ -166,15 +171,29 @@ func TestBoardServiceWorkflowProjectsRealStateOntoColumns(t *testing.T) {
 			t.Fatalf("column %q count = %d, want %d", column.Column, column.Count, len(cardsByColumn[column.Column]))
 		}
 	}
-	if len(result.Workflow.Unprojected) != 2 {
-		t.Fatalf("Unprojected = %#v, want the two issues no column describes", result.Workflow.Unprojected)
+	if len(result.Workflow.Unprojected) != 1 {
+		t.Fatalf("Unprojected = %#v, want only the open issue no column describes", result.Workflow.Unprojected)
 	}
 	reasons := map[string]string{}
 	for _, item := range result.Workflow.Unprojected {
 		reasons[item.IssueDisplayID] = item.Reason
 	}
-	if reasons["ISSUE-60"] != domain.BoardWorkflowReasonExternallyBlocked || reasons["ISSUE-70"] != domain.BoardWorkflowReasonNotReady {
+	if reasons["ISSUE-70"] != domain.BoardWorkflowReasonNotReady {
 		t.Fatalf("unprojected reasons = %#v", reasons)
+	}
+
+	// AB-5: the four columns are the whole board. The retired process-phase
+	// states must not reappear as columns.
+	for _, column := range result.Workflow.Columns {
+		switch column.Column {
+		case domain.BoardWorkflowColumnReady, domain.BoardWorkflowColumnInProgress,
+			domain.BoardWorkflowColumnDone, domain.BoardWorkflowColumnBlocked:
+		default:
+			t.Fatalf("unexpected workflow column %q", column.Column)
+		}
+	}
+	if len(result.Workflow.Columns) != 4 {
+		t.Fatalf("columns = %#v, want exactly the four task-level columns", result.Workflow.Columns)
 	}
 }
 
@@ -210,7 +229,8 @@ func TestBoardServiceWorkflowPlacesEachIssueInExactlyOneColumn(t *testing.T) {
 
 // TestBoardServiceWorkflowCardShowsExecutorRuntimeMetadata is AC3: the
 // IN PROGRESS card carries the claiming session's harness, model, worktree,
-// and instance key, and a review attempt is labelled as the verifier.
+// and instance key, and a review attempt is labelled as the verifier while
+// staying in the same task-level column as developer work.
 func TestBoardServiceWorkflowCardShowsExecutorRuntimeMetadata(t *testing.T) {
 	now := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
 	service, _ := workflowBoardFixture(t, now)
@@ -222,17 +242,18 @@ func TestBoardServiceWorkflowCardShowsExecutorRuntimeMetadata(t *testing.T) {
 
 	var inProgress, verifying *domain.BoardWorkflowCard
 	for index, card := range result.Workflow.Cards {
-		switch card.Column {
-		case domain.BoardWorkflowColumnInProgress:
+		if card.Column != domain.BoardWorkflowColumnInProgress {
+			continue
+		}
+		switch card.IssueDisplayID {
+		case "ISSUE-10":
 			inProgress = &result.Workflow.Cards[index]
-		case domain.BoardWorkflowColumnVerifying:
-			if card.IssueDisplayID == "ISSUE-30" {
-				verifying = &result.Workflow.Cards[index]
-			}
+		case "ISSUE-30":
+			verifying = &result.Workflow.Cards[index]
 		}
 	}
 	if inProgress == nil || verifying == nil {
-		t.Fatalf("missing IN PROGRESS or VERIFYING card: %#v", result.Workflow.Cards)
+		t.Fatalf("missing the developer or the verifier IN PROGRESS card: %#v", result.Workflow.Cards)
 	}
 	if inProgress.AttemptKind != domain.AttemptKindWork {
 		t.Fatalf("IN PROGRESS attempt kind = %q, want %q", inProgress.AttemptKind, domain.AttemptKindWork)
@@ -251,33 +272,58 @@ func TestBoardServiceWorkflowCardShowsExecutorRuntimeMetadata(t *testing.T) {
 	if inProgress.LeaseExpiresAt == nil || inProgress.AttemptStartedAt == nil {
 		t.Fatalf("IN PROGRESS card lease/started = %v / %v, want both set", inProgress.LeaseExpiresAt, inProgress.AttemptStartedAt)
 	}
+	if verifying.Column != domain.BoardWorkflowColumnInProgress {
+		t.Fatalf("verifier card column = %q, want IN PROGRESS", verifying.Column)
+	}
 	if verifying.AttemptKind != domain.AttemptKindReview {
-		t.Fatalf("VERIFYING attempt kind = %q, want %q", verifying.AttemptKind, domain.AttemptKindReview)
+		t.Fatalf("verifier attempt kind = %q, want %q", verifying.AttemptKind, domain.AttemptKindReview)
 	}
 	if verifying.ReviewStatus == nil || *verifying.ReviewStatus != domain.ReviewRequestStatusClaimed {
-		t.Fatalf("VERIFYING review status = %v, want claimed", verifying.ReviewStatus)
+		t.Fatalf("under-review card review status = %v, want claimed", verifying.ReviewStatus)
 	}
 
-	var rc, decision *domain.BoardWorkflowCard
+	// AB-5: the changes-requested round is card detail on a READY task, not an
+	// RC column, and a blocked review is a BLOCKED task, not DECISION REQUIRED.
+	var changesRequested, decision *domain.BoardWorkflowCard
 	for index, card := range result.Workflow.Cards {
-		switch card.Column {
-		case domain.BoardWorkflowColumnRC:
-			rc = &result.Workflow.Cards[index]
-		case domain.BoardWorkflowColumnDecisionRequired:
+		switch card.IssueDisplayID {
+		case "ISSUE-20":
+			changesRequested = &result.Workflow.Cards[index]
+		case "ISSUE-50":
 			decision = &result.Workflow.Cards[index]
 		}
 	}
-	if rc == nil || rc.ReviewStatus == nil || *rc.ReviewStatus != domain.ReviewRequestStatusChangesRequested {
-		t.Fatalf("RC review status = %v, want changes_requested", rc)
+	if changesRequested == nil || changesRequested.Column != domain.BoardWorkflowColumnReady {
+		t.Fatalf("changes-requested card = %#v, want READY with the round as detail", changesRequested)
 	}
-	if rc.ChangesRequestedCount != 1 {
-		t.Fatalf("RC changes_requested_count = %d, want 1", rc.ChangesRequestedCount)
+	if changesRequested.ReviewStatus == nil || *changesRequested.ReviewStatus != domain.ReviewRequestStatusChangesRequested {
+		t.Fatalf("changes-requested review status = %v, want changes_requested", changesRequested.ReviewStatus)
 	}
-	if rc.AttemptID != "" {
-		t.Fatalf("RC card attempt = %q, want no active attempt", rc.AttemptID)
+	if changesRequested.ChangesRequestedCount != 1 {
+		t.Fatalf("changes_requested_count = %d, want 1", changesRequested.ChangesRequestedCount)
 	}
-	if decision == nil || decision.ReviewStatus == nil || *decision.ReviewStatus != domain.ReviewRequestStatusBlocked {
-		t.Fatalf("DECISION REQUIRED review status = %v, want blocked", decision)
+	if changesRequested.AttemptID != "" {
+		t.Fatalf("rework-ready card attempt = %q, want no active attempt", changesRequested.AttemptID)
+	}
+	if decision == nil || decision.Column != domain.BoardWorkflowColumnBlocked {
+		t.Fatalf("blocked-review card = %#v, want BLOCKED", decision)
+	}
+	if decision.ReviewStatus == nil || *decision.ReviewStatus != domain.ReviewRequestStatusBlocked {
+		t.Fatalf("blocked card review status = %v, want blocked detail", decision.ReviewStatus)
+	}
+	if decision.BlockedReason == nil || *decision.BlockedReason != "product decision required" {
+		t.Fatalf("blocked card reason = %v, want the stored reason", decision.BlockedReason)
+	}
+	// The external block carries its own reason; the board does not classify it.
+	var external *domain.BoardWorkflowCard
+	for index, card := range result.Workflow.Cards {
+		if card.IssueDisplayID == "ISSUE-60" {
+			external = &result.Workflow.Cards[index]
+		}
+	}
+	if external == nil || external.Column != domain.BoardWorkflowColumnBlocked ||
+		external.BlockedReason == nil || *external.BlockedReason != "waiting on the vendor API" {
+		t.Fatalf("external block card = %#v, want BLOCKED with its stored reason", external)
 	}
 }
 
@@ -414,15 +460,19 @@ func TestBoardServiceWorkflowTruncationFollowsTheBoundedReads(t *testing.T) {
 	reviewOf := func() []domain.IssueProjection {
 		return []domain.IssueProjection{workflowProjectionIssue("issue-31", "ISSUE-31", domain.StatusReview, domain.PriorityMedium)}
 	}
+	blockedOf := func() []domain.IssueProjection {
+		return []domain.IssueProjection{workflowProjectionIssue("issue-51", "ISSUE-51", domain.StatusBlocked, domain.PriorityHigh)}
+	}
 	doneOf := func() []domain.IssueProjection {
 		return []domain.IssueProjection{workflowProjectionIssue("issue-41", "ISSUE-41", domain.StatusDone, domain.PriorityLow)}
 	}
 	issueRepo := &boardRecordingIssueRepository{
 		listResult: domain.IssueList{Items: ready, HasMore: true},
 		listResultsByStatus: map[domain.Status]domain.IssueList{
-			domain.StatusReady:  {Items: ready, HasMore: true},
-			domain.StatusReview: {Items: reviewOf(), HasMore: true},
-			domain.StatusDone:   {Items: doneOf(), HasMore: true},
+			domain.StatusReady:   {Items: ready, HasMore: true},
+			domain.StatusReview:  {Items: reviewOf(), HasMore: true},
+			domain.StatusBlocked: {Items: blockedOf(), HasMore: true},
+			domain.StatusDone:    {Items: doneOf(), HasMore: true},
 		},
 	}
 	attemptRepo := &boardRecordingAttemptRepository{}
@@ -449,8 +499,11 @@ func TestBoardServiceWorkflowTruncationFollowsTheBoundedReads(t *testing.T) {
 	if !result.Workflow.Truncation.Unprojected {
 		t.Fatal("Truncation.Unprojected = false, want true")
 	}
-	if !result.Workflow.Truncation.Verifying {
-		t.Fatal("Truncation.Verifying = false, want true")
+	if !result.Workflow.Truncation.Review {
+		t.Fatal("Truncation.Review = false, want true")
+	}
+	if !result.Workflow.Truncation.Blocked {
+		t.Fatal("Truncation.Blocked = false, want true")
 	}
 	if !result.Workflow.Truncation.Done {
 		t.Fatal("Truncation.Done = false, want true")
@@ -463,11 +516,10 @@ func TestBoardServiceWorkflowTruncationFollowsTheBoundedReads(t *testing.T) {
 	}
 }
 
-// TestBoardServiceWorkflowNewestReviewDecisionWins pins the wrong-column fix:
-// the newest review request decides the column, even when it carries a
-// terminal status the projection does not otherwise use. An older
-// changes_requested or blocked request must not leave a card in RC or
-// DECISION REQUIRED after a later approval or cancellation.
+// TestBoardServiceWorkflowNewestReviewDecisionWins pins the review-detail
+// rule and the AB-5 boundary at once: the newest review request is what a card
+// reports, even when it carries a terminal status, and no review outcome can
+// change the card's task-level column.
 func TestBoardServiceWorkflowNewestReviewDecisionWins(t *testing.T) {
 	now := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
 	ready := []domain.IssueProjection{
@@ -475,6 +527,9 @@ func TestBoardServiceWorkflowNewestReviewDecisionWins(t *testing.T) {
 		workflowProjectionIssue("issue-21", "ISSUE-21", domain.StatusReady, domain.PriorityMedium),
 	}
 	rest := []domain.IssueProjection{
+		workflowProjectionIssue("issue-80", "ISSUE-80", domain.StatusOpen, domain.PriorityLow),
+	}
+	blocked := []domain.IssueProjection{
 		workflowProjectionIssue("issue-50", "ISSUE-50", domain.StatusBlocked, domain.PriorityHigh),
 	}
 	older := func(id, issueID string, status domain.ReviewRequestStatus) domain.ReviewRequest {
@@ -485,8 +540,11 @@ func TestBoardServiceWorkflowNewestReviewDecisionWins(t *testing.T) {
 	}
 
 	issueRepo := &boardRecordingIssueRepository{
-		listResult:          domain.IssueList{Items: rest},
-		listResultsByStatus: map[domain.Status]domain.IssueList{domain.StatusReady: {Items: ready}},
+		listResult: domain.IssueList{Items: rest},
+		listResultsByStatus: map[domain.Status]domain.IssueList{
+			domain.StatusReady:   {Items: ready},
+			domain.StatusBlocked: {Items: blocked},
+		},
 	}
 	attemptRepo := &boardRecordingAttemptRepository{}
 	reservationRepo := &boardRecordingReservationRepository{}
@@ -527,20 +585,29 @@ func TestBoardServiceWorkflowNewestReviewDecisionWins(t *testing.T) {
 		reviewStatus[card.IssueDisplayID] = card.ReviewStatus
 	}
 	if columns["ISSUE-20"] != domain.BoardWorkflowColumnReady {
-		t.Fatalf("ISSUE-20 column = %q, want READY: the newest review approved, the older changes_requested is obsolete", columns["ISSUE-20"])
+		t.Fatalf("ISSUE-20 column = %q, want READY: stored ready is READY whatever the review history", columns["ISSUE-20"])
 	}
 	if columns["ISSUE-21"] != domain.BoardWorkflowColumnReady {
-		t.Fatalf("ISSUE-21 column = %q, want READY: the newest review was cancelled", columns["ISSUE-21"])
+		t.Fatalf("ISSUE-21 column = %q, want READY: stored ready is READY whatever the review history", columns["ISSUE-21"])
+	}
+	if columns["ISSUE-50"] != domain.BoardWorkflowColumnBlocked {
+		t.Fatalf("ISSUE-50 column = %q, want BLOCKED: a later approval is detail, not a column move", columns["ISSUE-50"])
 	}
 	if reviewStatus["ISSUE-20"] == nil || *reviewStatus["ISSUE-20"] != domain.ReviewRequestStatusApproved {
 		t.Fatalf("ISSUE-20 review status = %v, want the newest approved request", reviewStatus["ISSUE-20"])
+	}
+	if reviewStatus["ISSUE-21"] == nil || *reviewStatus["ISSUE-21"] != domain.ReviewRequestStatusCancelled {
+		t.Fatalf("ISSUE-21 review status = %v, want the newest cancelled request", reviewStatus["ISSUE-21"])
+	}
+	if reviewStatus["ISSUE-50"] == nil || *reviewStatus["ISSUE-50"] != domain.ReviewRequestStatusApproved {
+		t.Fatalf("ISSUE-50 review status = %v, want the newest approved request despite the older blocked one", reviewStatus["ISSUE-50"])
 	}
 	reasons := map[string]string{}
 	for _, item := range result.Workflow.Unprojected {
 		reasons[item.IssueDisplayID] = item.Reason
 	}
-	if reasons["ISSUE-50"] != domain.BoardWorkflowReasonExternallyBlocked {
-		t.Fatalf("ISSUE-50 unprojected reason = %q, want externally_blocked after a later approval", reasons["ISSUE-50"])
+	if reasons["ISSUE-80"] != domain.BoardWorkflowReasonNotReady {
+		t.Fatalf("ISSUE-80 unprojected reason = %q, want not_ready", reasons["ISSUE-80"])
 	}
 
 	// The selection is deterministic even when two requests share an instant.
@@ -559,5 +626,90 @@ func TestBoardServiceWorkflowNewestReviewDecisionWins(t *testing.T) {
 		if signals["issue-1"].latest.ID != "review-b" {
 			t.Fatalf("same-instant tie-break chose %q, want the higher request ID review-b", signals["issue-1"].latest.ID)
 		}
+	}
+}
+
+// TestBoardServiceWorkflowReworkCardKeepsItsDelivery pins the AB-5 delivery
+// rule: a stored-ready card sent back for changes is READY again, and it must
+// keep the delivery references its earlier round produced (the retired RC card
+// carried them). A READY card that has never been reviewed is still skipped,
+// so the board does not read artifacts for work that cannot have any.
+func TestBoardServiceWorkflowReworkCardKeepsItsDelivery(t *testing.T) {
+	now := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
+	service, reader := workflowBoardFixture(t, now)
+	title := "fix: first round"
+	reader.byIssue["issue-20"] = []domain.Artifact{
+		{ID: "artifact-20", IssueID: "issue-20", Type: domain.ArtifactTypeCommit, URI: "deadbee", Title: &title},
+	}
+
+	result, err := service.GetBoard(context.Background())
+	if err != nil {
+		t.Fatalf("GetBoard() error = %v", err)
+	}
+	var rework *domain.BoardWorkflowCard
+	for index, card := range result.Workflow.Cards {
+		if card.IssueDisplayID == "ISSUE-20" {
+			rework = &result.Workflow.Cards[index]
+		}
+	}
+	if rework == nil || rework.Column != domain.BoardWorkflowColumnReady {
+		t.Fatalf("rework card = %#v, want READY", rework)
+	}
+	if len(rework.Delivery) != 1 || rework.Delivery[0].URI != "deadbee" {
+		t.Fatalf("rework READY card delivery = %#v, want the earlier round's commit", rework.Delivery)
+	}
+	asked := map[string]bool{}
+	for _, issueID := range reader.called {
+		asked[issueID] = true
+	}
+	if !asked["issue-20"] {
+		t.Fatal("delivery reader was never asked for the rework card")
+	}
+	for _, neverReviewed := range []string{"issue-21", "issue-22"} {
+		if asked[neverReviewed] {
+			t.Fatalf("delivery reader was asked for untouched READY issue %q", neverReviewed)
+		}
+	}
+}
+
+// TestBoardServiceReadyQueueRefusesWhenTheAttemptReadWasCut keeps reordering
+// honest: when the active-attempt read is cut, an attempt that would place a
+// stored-ready issue in IN PROGRESS can be missing, so the plan could not be
+// trusted and the queue refuses.
+func TestBoardServiceReadyQueueRefusesWhenTheAttemptReadWasCut(t *testing.T) {
+	now := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
+	build := func(t *testing.T, hasMore bool) *BoardService {
+		t.Helper()
+		ready := []domain.IssueProjection{workflowProjectionIssue("issue-10", "ISSUE-10", domain.StatusReady, domain.PriorityHigh)}
+		issueRepo := &boardRecordingIssueRepository{
+			listResultsByStatus: map[domain.Status]domain.IssueList{domain.StatusReady: {Items: ready}},
+		}
+		attemptRepo := &boardRecordingAttemptRepository{listResult: domain.ActiveAttemptList{HasMore: hasMore}}
+		issueService, attemptService, reservationService, reviewService, graphService, source := newBoardServiceDependenciesWithRepos(
+			t, issueRepo, attemptRepo, &boardRecordingReservationRepository{}, &boardRecordingReviewRepository{},
+			&boardRecordingGraphRepository{snapshot: domain.GraphSnapshot{}}, now)
+		service, err := NewBoardService(issueService, attemptService, reservationService, reviewService, graphService, &stubGateSummaryService{}, nil, source)
+		if err != nil {
+			t.Fatalf("NewBoardService() error = %v", err)
+		}
+		return service
+	}
+
+	snapshot, err := build(t, true).ReadyQueue(context.Background())
+	if err != nil {
+		t.Fatalf("ReadyQueue() error = %v", err)
+	}
+	if !snapshot.Truncated {
+		t.Fatal("ReadyQueue().Truncated = false with a cut active-attempt read")
+	}
+	intact, err := build(t, false).ReadyQueue(context.Background())
+	if err != nil {
+		t.Fatalf("ReadyQueue() error = %v", err)
+	}
+	if intact.Truncated {
+		t.Fatal("ReadyQueue().Truncated = true with complete reads")
+	}
+	if len(intact.Cards) != 1 || intact.Cards[0].IssueDisplayID != "ISSUE-10" {
+		t.Fatalf("ReadyQueue() cards = %#v, want the stored-ready issue", intact.Cards)
 	}
 }

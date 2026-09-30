@@ -1,7 +1,7 @@
 {{define "boardWorkflowSection"}}
 <section class="workflow" aria-labelledby="workflow-heading">
 <h2 id="workflow-heading">Workflow board</h2>
-<p class="generated">Kanban projection of live project state: one card per issue, derived from issue, attempt, and review data. Columns change only through the task actions on this page.</p>
+<p class="generated">Four task-level states — READY, IN PROGRESS, DONE, BLOCKED — projected from live project state, one card per issue. Development, verification, and changes-requested rounds are execution detail on the card, not columns.</p>
 <div class="kanban">
 {{range .Columns}}
 <div class="kanban-column" data-column="{{.Column}}">
@@ -13,6 +13,7 @@
 <div class="kanban-card-head"><strong>{{if .HasIssueLink}}<a href="{{.IssueHref}}">{{.IssueLabel}}</a>{{else}}{{.IssueLabel}}{{end}}</strong><span class="kanban-priority">{{.Priority}}</span></div>
 <div class="kanban-card-title">{{.Title}}</div>
 {{if .HasReadyRank}}<div class="kanban-field"><span class="kanban-key">READY rank</span> {{.ReadyRank}}</div>{{end}}
+{{if .HasBlockedReason}}<div class="kanban-field"><span class="kanban-key">Blocked reason</span> {{.BlockedReason}}</div>{{end}}
 {{if .HasAttempt}}<div class="kanban-field"><span class="kanban-key">{{.ExecutorRole}}</span> {{.ExecutorLabel}}</div>
 <div class="kanban-field"><span class="kanban-key">Instance</span> {{.ExecutorInstanceKey}}</div>
 <div class="kanban-field"><span class="kanban-key">Harness</span> {{.ExecutorClient}}</div>
@@ -55,7 +56,8 @@
 {{end}}
 </div>
 {{if .ReadyTruncated}}<p class="empty">READY cards are cut at the collection limit; more may exist.</p>{{end}}
-{{if .VerifyingTruncated}}<p class="empty">VERIFYING cards are cut at the collection limit; more may exist.</p>{{end}}
+{{if .StoredReviewTruncated}}<p class="empty">IN PROGRESS cards read from stored review are cut at the collection limit; more may exist.</p>{{end}}
+{{if .BlockedTruncated}}<p class="empty">BLOCKED cards are cut at the collection limit; more may exist.</p>{{end}}
 {{if .DoneTruncated}}<p class="empty">DONE cards are cut at the collection limit; more may exist.</p>{{end}}
 {{if .ReviewTruncated}}<p class="empty">Review signals are cut at the collection limit; a card's review state may be older than the newest request.</p>{{end}}
 {{if .DeliveryTruncated}}<p class="empty">Some cards have more delivery references than the card shows; open the issue for the full list.</p>{{end}}

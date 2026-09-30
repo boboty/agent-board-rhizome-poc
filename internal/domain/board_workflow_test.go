@@ -1,6 +1,7 @@
 package domain_test
 
 import (
+	"reflect"
 	"testing"
 	"time"
 
@@ -25,8 +26,7 @@ func workflowReview(status domain.ReviewRequestStatus) *domain.ReviewRequest {
 
 // TestDeriveBoardWorkflowPlacementMapsRealStateToColumn pins the whole mapping
 // table. Every case is a state the domain can actually produce, and the
-// expected column is the one a reader of the AI engineering workflow would
-// expect for that state.
+// expected column is one of the four task-level states the Agent Board shows.
 func TestDeriveBoardWorkflowPlacementMapsRealStateToColumn(t *testing.T) {
 	archived := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
 	archivedIssue := workflowIssue(domain.StatusReady)
@@ -36,24 +36,19 @@ func TestDeriveBoardWorkflowPlacementMapsRealStateToColumn(t *testing.T) {
 		name       string
 		issue      domain.Issue
 		attempt    *domain.ActiveAttemptSummary
-		review     *domain.ReviewRequest
 		wantColumn domain.BoardWorkflowColumn
 		wantReason string
 	}{
 		{name: "ready and unclaimed is READY", issue: workflowIssue(domain.StatusReady), wantColumn: domain.BoardWorkflowColumnReady},
 		{name: "ready with an active work attempt is IN PROGRESS", issue: workflowIssue(domain.StatusReady), attempt: workflowWorkAttempt(), wantColumn: domain.BoardWorkflowColumnInProgress},
-		{name: "ready after changes requested is RC", issue: workflowIssue(domain.StatusReady), review: workflowReview(domain.ReviewRequestStatusChangesRequested), wantColumn: domain.BoardWorkflowColumnRC},
-		{name: "an active work attempt outranks a stale changes-requested review", issue: workflowIssue(domain.StatusReady), attempt: workflowWorkAttempt(), review: workflowReview(domain.ReviewRequestStatusChangesRequested), wantColumn: domain.BoardWorkflowColumnInProgress},
-		{name: "an approved review leaves a ready issue READY", issue: workflowIssue(domain.StatusReady), review: workflowReview(domain.ReviewRequestStatusApproved), wantColumn: domain.BoardWorkflowColumnReady},
-		{name: "stored review awaits verification", issue: workflowIssue(domain.StatusReview), wantColumn: domain.BoardWorkflowColumnVerifying},
-		{name: "an active review attempt is VERIFYING", issue: workflowIssue(domain.StatusReview), attempt: workflowReviewAttempt(), wantColumn: domain.BoardWorkflowColumnVerifying},
-		{name: "a claimed review request on a ready issue still verifies", issue: workflowIssue(domain.StatusReview), review: workflowReview(domain.ReviewRequestStatusClaimed), wantColumn: domain.BoardWorkflowColumnVerifying},
-		{name: "an open review request on a ready issue still verifies", issue: workflowIssue(domain.StatusReview), review: workflowReview(domain.ReviewRequestStatusOpen), wantColumn: domain.BoardWorkflowColumnVerifying},
-		{name: "a blocked review is DECISION REQUIRED", issue: workflowIssue(domain.StatusBlocked), review: workflowReview(domain.ReviewRequestStatusBlocked), wantColumn: domain.BoardWorkflowColumnDecisionRequired},
-		{name: "a blocked issue without a blocked review is not a decision request", issue: workflowIssue(domain.StatusBlocked), wantReason: domain.BoardWorkflowReasonExternallyBlocked},
-		{name: "a blocked issue with an unrelated review is not a decision request", issue: workflowIssue(domain.StatusBlocked), review: workflowReview(domain.ReviewRequestStatusChangesRequested), wantReason: domain.BoardWorkflowReasonExternallyBlocked},
+		{name: "ready with an active review attempt is still IN PROGRESS", issue: workflowIssue(domain.StatusReady), attempt: workflowReviewAttempt(), wantColumn: domain.BoardWorkflowColumnInProgress},
+		{name: "stored review is IN PROGRESS", issue: workflowIssue(domain.StatusReview), wantColumn: domain.BoardWorkflowColumnInProgress},
+		{name: "stored review with an active review attempt stays IN PROGRESS", issue: workflowIssue(domain.StatusReview), attempt: workflowReviewAttempt(), wantColumn: domain.BoardWorkflowColumnInProgress},
+		{name: "stored review with an active work attempt stays IN PROGRESS", issue: workflowIssue(domain.StatusReview), attempt: workflowWorkAttempt(), wantColumn: domain.BoardWorkflowColumnInProgress},
+		{name: "blocked is BLOCKED", issue: workflowIssue(domain.StatusBlocked), wantColumn: domain.BoardWorkflowColumnBlocked},
+		{name: "an active attempt outranks a stored block", issue: workflowIssue(domain.StatusBlocked), attempt: workflowWorkAttempt(), wantColumn: domain.BoardWorkflowColumnInProgress},
 		{name: "done is DONE", issue: workflowIssue(domain.StatusDone), wantColumn: domain.BoardWorkflowColumnDone},
-		{name: "done wins over a lingering blocked review", issue: workflowIssue(domain.StatusDone), review: workflowReview(domain.ReviewRequestStatusBlocked), wantColumn: domain.BoardWorkflowColumnDone},
+		{name: "done wins over a lingering attempt", issue: workflowIssue(domain.StatusDone), attempt: workflowReviewAttempt(), wantColumn: domain.BoardWorkflowColumnDone},
 		{name: "cancelled is not on the board", issue: workflowIssue(domain.StatusCancelled), wantReason: domain.BoardWorkflowReasonCancelled},
 		{name: "open is not yet READY", issue: workflowIssue(domain.StatusOpen), wantReason: domain.BoardWorkflowReasonNotReady},
 		{name: "an archived issue is not on the board", issue: archivedIssue, wantReason: domain.BoardWorkflowReasonArchived},
@@ -62,7 +57,7 @@ func TestDeriveBoardWorkflowPlacementMapsRealStateToColumn(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			column, reason := domain.DeriveBoardWorkflowPlacement(domain.BoardWorkflowPlacementInput{
-				Issue: test.issue, ActiveAttempt: test.attempt, LatestReview: test.review,
+				Issue: test.issue, ActiveAttempt: test.attempt,
 			})
 			if column != test.wantColumn || reason != test.wantReason {
 				t.Fatalf("placement = (%q, %q), want (%q, %q)", column, reason, test.wantColumn, test.wantReason)
@@ -71,39 +66,69 @@ func TestDeriveBoardWorkflowPlacementMapsRealStateToColumn(t *testing.T) {
 	}
 }
 
-// TestDeriveBoardWorkflowPlacementAlwaysPlacesOrExplains is the AC2 invariant
-// at the derivation level: for every combination of stored status, attempt
-// kind, and review status the domain can produce, the issue lands in exactly
-// one column or is explained by exactly one reason. It must never be both and
+// TestBoardWorkflowPlacementHasNoReviewInput is the AB-5 structural guarantee
+// that review, verification, and changes-requested state cannot move a card
+// between task-level columns: the derivation input carries an issue and an
+// active attempt, and nothing a review read produces. The states the removed
+// VERIFYING / RC / DECISION REQUIRED columns used to hold are pinned here to
+// their new task-level homes.
+func TestBoardWorkflowPlacementHasNoReviewInput(t *testing.T) {
+	// The keys are exactly the fields DeriveBoardWorkflowPlacement may read.
+	// Adding a review field here would make the review signal part of the
+	// column contract again, which AB-5 forbids.
+	input := domain.BoardWorkflowPlacementInput{}
+	fields := reflect.TypeOf(input).NumField()
+	if fields != 2 {
+		t.Fatalf("BoardWorkflowPlacementInput has %d fields, want issue + active attempt only", fields)
+	}
+	if _, ok := reflect.TypeOf(input).FieldByName("LatestReview"); ok {
+		t.Fatal("placement input carries a review signal; reviews must be card detail only")
+	}
+
+	// A stored-ready issue is READY even when a review round requested changes:
+	// the rework is executable work, not a separate RC column.
+	ready, reason := domain.DeriveBoardWorkflowPlacement(domain.BoardWorkflowPlacementInput{Issue: workflowIssue(domain.StatusReady)})
+	if ready != domain.BoardWorkflowColumnReady || reason != "" {
+		t.Fatalf("stored ready placement = (%q, %q), want READY", ready, reason)
+	}
+	// A blocked issue is BLOCKED whether the block came from a review decision
+	// or from an external condition: the cause is card detail.
+	blocked, reason := domain.DeriveBoardWorkflowPlacement(domain.BoardWorkflowPlacementInput{Issue: workflowIssue(domain.StatusBlocked)})
+	if blocked != domain.BoardWorkflowColumnBlocked || reason != "" {
+		t.Fatalf("stored blocked placement = (%q, %q), want BLOCKED", blocked, reason)
+	}
+}
+
+// TestDeriveBoardWorkflowPlacementAlwaysPlacesOrExplains is the one-placement
+// invariant at the derivation level: for every combination of stored status
+// and attempt kind the domain can produce, the issue lands in exactly one
+// column or is explained by exactly one reason. It must never be both and
 // never neither, because "neither" would drop a task and "both" would let it
 // appear twice.
 func TestDeriveBoardWorkflowPlacementAlwaysPlacesOrExplains(t *testing.T) {
 	statuses := []domain.Status{domain.StatusOpen, domain.StatusReady, domain.StatusBlocked, domain.StatusReview, domain.StatusDone, domain.StatusCancelled, domain.Status("mystery")}
 	attempts := []*domain.ActiveAttemptSummary{nil, workflowWorkAttempt(), workflowReviewAttempt()}
-	reviews := []*domain.ReviewRequest{nil,
-		workflowReview(domain.ReviewRequestStatusOpen),
-		workflowReview(domain.ReviewRequestStatusClaimed),
-		workflowReview(domain.ReviewRequestStatusChangesRequested),
-		workflowReview(domain.ReviewRequestStatusBlocked),
-		workflowReview(domain.ReviewRequestStatusApproved),
-		workflowReview(domain.ReviewRequestStatusSuperseded),
-	}
 	combinations := 0
 	for _, status := range statuses {
 		for _, attempt := range attempts {
-			for _, review := range reviews {
-				combinations++
-				column, reason := domain.DeriveBoardWorkflowPlacement(domain.BoardWorkflowPlacementInput{
-					Issue: workflowIssue(status), ActiveAttempt: attempt, LatestReview: review,
-				})
-				placed := column != ""
-				explained := reason != ""
-				if placed == explained {
-					t.Fatalf("status=%q attempt=%v review=%v: column=%q reason=%q, want exactly one of them set",
-						status, attempt != nil, review != nil, column, reason)
-				}
-				if placed && !column.Valid() {
-					t.Fatalf("status=%q: column %q is not a supported workflow column", status, column)
+			combinations++
+			column, reason := domain.DeriveBoardWorkflowPlacement(domain.BoardWorkflowPlacementInput{
+				Issue: workflowIssue(status), ActiveAttempt: attempt,
+			})
+			placed := column != ""
+			explained := reason != ""
+			if placed == explained {
+				t.Fatalf("status=%q attempt=%v: column=%q reason=%q, want exactly one of them set",
+					status, attempt != nil, column, reason)
+			}
+			if placed && !column.Valid() {
+				t.Fatalf("status=%q: column %q is not a supported workflow column", status, column)
+			}
+			// The four task-level columns are the whole board: no placement can
+			// produce the retired process-phase states.
+			for _, retired := range []domain.BoardWorkflowColumn{"verifying", "rc", "decision_required"} {
+				if column == retired {
+					t.Fatalf("status=%q: placement produced retired column %q", status, retired)
 				}
 			}
 		}
@@ -115,12 +140,13 @@ func TestDeriveBoardWorkflowPlacementAlwaysPlacesOrExplains(t *testing.T) {
 
 func TestBoardWorkflowColumnTitlesCoverEveryColumn(t *testing.T) {
 	want := map[domain.BoardWorkflowColumn]string{
-		domain.BoardWorkflowColumnReady:            "READY",
-		domain.BoardWorkflowColumnInProgress:       "IN PROGRESS",
-		domain.BoardWorkflowColumnVerifying:        "VERIFYING",
-		domain.BoardWorkflowColumnRC:               "RC",
-		domain.BoardWorkflowColumnDecisionRequired: "DECISION REQUIRED",
-		domain.BoardWorkflowColumnDone:             "DONE",
+		domain.BoardWorkflowColumnReady:      "READY",
+		domain.BoardWorkflowColumnInProgress: "IN PROGRESS",
+		domain.BoardWorkflowColumnDone:       "DONE",
+		domain.BoardWorkflowColumnBlocked:    "BLOCKED",
+	}
+	if len(domain.BoardWorkflowColumns) != 4 {
+		t.Fatalf("BoardWorkflowColumns = %v, want exactly the four task-level columns", domain.BoardWorkflowColumns)
 	}
 	if len(domain.BoardWorkflowColumns) != len(want) {
 		t.Fatalf("BoardWorkflowColumns = %v, want %d columns", domain.BoardWorkflowColumns, len(want))
@@ -150,7 +176,7 @@ func workflowCard(column domain.BoardWorkflowColumn, displayID string, priority 
 }
 
 // TestNewBoardWorkflowProjectionListsEveryColumnAndCountsCards checks that a
-// UI never has to infer a column: all six are always present, in board order,
+// UI never has to infer a column: all four are always present, in board order,
 // with counts that match the cards actually handed in.
 func TestNewBoardWorkflowProjectionListsEveryColumnAndCountsCards(t *testing.T) {
 	rank := int64(4)
@@ -239,7 +265,6 @@ func TestBoardWorkflowUnprojectedDetailExplainsEveryReason(t *testing.T) {
 		domain.BoardWorkflowReasonArchived,
 		domain.BoardWorkflowReasonCancelled,
 		domain.BoardWorkflowReasonNotReady,
-		domain.BoardWorkflowReasonExternallyBlocked,
 		domain.BoardWorkflowReasonUnknownStatus,
 		"something-new",
 	}
@@ -256,6 +281,9 @@ func TestBoardWorkflowTruncationAny(t *testing.T) {
 	}
 	for name, truncation := range map[string]domain.BoardWorkflowTruncation{
 		"ready":             {Ready: true},
+		"review":            {Review: true},
+		"blocked":           {Blocked: true},
+		"done":              {Done: true},
 		"unprojected":       {Unprojected: true},
 		"review_requests":   {ReviewRequests: true},
 		"delivery_overflow": {DeliveryOverflow: true},
