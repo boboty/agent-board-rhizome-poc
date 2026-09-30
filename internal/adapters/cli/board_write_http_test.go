@@ -206,6 +206,26 @@ func TestBoardWriteRequiresCSRFAndSameOrigin(t *testing.T) {
 			status: http.StatusForbidden,
 		},
 		{
+			name: "null origin cross-site",
+			request: func() *http.Request {
+				request := boardWriteRequest(t, "/api/issues", form, token, true)
+				request.Header.Set("Origin", "null")
+				request.Header.Set("Sec-Fetch-Site", "cross-site")
+				return request
+			},
+			status: http.StatusForbidden,
+		},
+		{
+			name: "null origin invalid csrf",
+			request: func() *http.Request {
+				request := boardWriteRequest(t, "/api/issues", form, "bad-token", true)
+				request.Header.Set("Origin", "null")
+				request.Header.Set("Sec-Fetch-Site", "same-origin")
+				return request
+			},
+			status: http.StatusForbidden,
+		},
+		{
 			name: "cross-origin",
 			request: func() *http.Request {
 				request := boardWriteRequest(t, "/api/issues", form, token, true)
@@ -252,6 +272,31 @@ func TestBoardWriteRequiresCSRFAndSameOrigin(t *testing.T) {
 	}, "", true))
 	if recorder.Code != http.StatusCreated {
 		t.Fatalf("same-origin form status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+
+	// null origin with Sec-Fetch-Site: same-origin + valid CSRF is accepted
+	// (real browser behaviour on loopback addresses like http://127.0.0.1).
+	recorder = httptest.NewRecorder()
+	request := boardWriteRequest(t, "/api/issues", url.Values{
+		"csrf_token": {token}, "title": {"Null-origin task"},
+	}, token, true)
+	request.Header.Set("Origin", "null")
+	request.Header.Set("Sec-Fetch-Site", "same-origin")
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusCreated {
+		t.Fatalf("null origin + same-origin status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+
+	// null origin with Sec-Fetch-Site: none + valid CSRF is also accepted.
+	recorder = httptest.NewRecorder()
+	request = boardWriteRequest(t, "/api/issues", url.Values{
+		"csrf_token": {token}, "title": {"Null-origin task 2"},
+	}, token, true)
+	request.Header.Set("Origin", "null")
+	request.Header.Set("Sec-Fetch-Site", "none")
+	handler.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusCreated {
+		t.Fatalf("null origin + none status = %d, body = %s", recorder.Code, recorder.Body.String())
 	}
 }
 

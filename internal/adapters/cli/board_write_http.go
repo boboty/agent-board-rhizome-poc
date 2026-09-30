@@ -153,15 +153,29 @@ func (gate *boardWriteGate) serveBoardWrite(w http.ResponseWriter, request *http
 // and when the browser did not label the request cross-site. The synchronizer
 // token is the other half and is required unconditionally.
 func boardWriteSameOrigin(request *http.Request) bool {
-	switch site := strings.ToLower(strings.TrimSpace(request.Header.Get("Sec-Fetch-Site"))); site {
-	case "", "same-origin", "none":
-	default:
+	site := strings.ToLower(strings.TrimSpace(request.Header.Get("Sec-Fetch-Site")))
+	origin := strings.TrimSpace(request.Header.Get("Origin"))
+
+	// Reject requests the browser explicitly labelled cross-site.
+	if site == "cross-site" {
 		return false
 	}
-	origin := strings.TrimSpace(request.Header.Get("Origin"))
+
 	if origin == "" {
+		// No Origin header — plain HTML form post or a trusted embedder.
+		// Allow through; the CSRF token check is the authoritative defense.
 		return true
 	}
+
+	// Browsers serialize opaque security origins (e.g. loopback pages at
+	// http://127.0.0.1) as the literal string "null".  Only accept it
+	// when the request carries explicit same-site metadata so that a
+	// cross-site script cannot trivially forge a null Origin.
+	if origin == "null" {
+		return site == "same-origin" || site == "none"
+	}
+
+	// Normal origin — must match the Host we received the request on.
 	expected := "http://" + strings.TrimSpace(request.Host)
 	if request.TLS != nil {
 		expected = "https://" + strings.TrimSpace(request.Host)
