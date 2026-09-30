@@ -65,7 +65,7 @@ func TestRenderBoardHTMLCoverage(t *testing.T) {
 		if err != nil {
 			t.Fatalf("renderBoardHTML: %v", err)
 		}
-		for _, want := range []string{"Agent Board", "Status counts", "ISSUE-120", "Waiting on umbrella issue", "attempt-work", "file: src/&lt;script&gt;alert(4)&lt;/script&gt;.go", "1 active resource reservation,"} {
+		for _, want := range []string{"Agent Board", "状态统计", "ISSUE-120", "Waiting on umbrella issue", "attempt-work", "file: src/&lt;script&gt;alert(4)&lt;/script&gt;.go", "活跃资源预留"} {
 			if !strings.Contains(html, want) {
 				t.Fatalf("static board missing %q:\n%s", want, html)
 			}
@@ -106,7 +106,7 @@ func TestRenderBoardHTMLCoverage(t *testing.T) {
 		if err != nil {
 			t.Fatalf("renderServedBoardHTML: %v", err)
 		}
-		for _, want := range []string{"data-board-main", "Search", "data-board-search-form", "board-search-query", "ISSUE-100", "ISSUE-120", "ISSUE-200", "ISSUE-201", "(truncated)", "href=\"/issues/ISSUE-200\"", "href=\"/issues/ISSUE-201\"", "href=\"/issues/ISSUE-100\"", "1 active resource reservation,"} {
+		for _, want := range []string{"data-board-main", "搜索", "data-board-search-form", "board-search-query", "ISSUE-100", "ISSUE-120", "ISSUE-200", "ISSUE-201", "已截断", "href=\"/issues/ISSUE-200\"", "href=\"/issues/ISSUE-201\"", "href=\"/issues/ISSUE-100\"", "活跃资源预留"} {
 			if !strings.Contains(html, want) {
 				t.Fatalf("served board missing %q:\n%s", want, html)
 			}
@@ -214,7 +214,7 @@ func TestRenderIssueDetailHTMLCoverage(t *testing.T) {
 		if err != nil {
 			t.Fatalf("renderIssueDetailHTML: %v", err)
 		}
-		for _, want := range []string{"ISSUE-300", "Archived:", "alpha, beta", "Need &lt;script&gt;alert(1)&lt;/script&gt;", "Approval &lt;b&gt;required&lt;/b&gt;", "Blocked by &lt;script&gt;alert(2)&lt;/script&gt;", "Root issue", "href=\"/issues/ISSUE-301\"", "Latest attempt", "attempt-777", "Open review", "review-open", "Latest decision", "Decision summary", "Related graph", "aria-label=\"Planning graph\"", "Additional activity is available.", "Comment &lt;script&gt;alert(3)&lt;/script&gt;", "Work done &lt;b&gt;today&lt;/b&gt;", "current.go", "old/&lt;script&gt;alert(5)&lt;/script&gt;/**", "active", "released", "Additional reservations are available."} {
+		for _, want := range []string{"ISSUE-300", "归档时间:", "alpha, beta", "Need &lt;script&gt;alert(1)&lt;/script&gt;", "Approval &lt;b&gt;required&lt;/b&gt;", "Blocked by &lt;script&gt;alert(2)&lt;/script&gt;", "根任务", "href=\"/issues/ISSUE-301\"", "最近执行", "attempt-777", "验收中", "review-open", "最新决策", "Decision summary", "相关关系图", "aria-label=\"Planning graph\"", "存在更多活动记录", "Comment &lt;script&gt;alert(3)&lt;/script&gt;", "Work done &lt;b&gt;today&lt;/b&gt;", "current.go", "old/&lt;script&gt;alert(5)&lt;/script&gt;/**", "active", "released", "存在更多资源预留"} {
 			if !strings.Contains(html, want) {
 				t.Fatalf("rich detail missing %q:\n%s", want, html)
 			}
@@ -252,7 +252,7 @@ func TestRenderIssueDetailHTMLCoverage(t *testing.T) {
 		if err != nil {
 			t.Fatalf("renderIssueDetailHTML: %v", err)
 		}
-		for _, want := range []string{"ISSUE-301", "Not archived.", "No labels assigned.", "No description provided.", "No acceptance criteria provided.", "No blocked reason provided.", "No activity recorded yet.", "No current or historical reservations.", "Agent Board"} {
+		for _, want := range []string{"ISSUE-301", "未归档", "未分配标签", "未提供任务说明", "未提供验收标准", "未提供阻塞原因", "暂无活动记录", "无历史或当前资源预留", "Agent Board"} {
 			if !strings.Contains(html, want) {
 				t.Fatalf("sparse detail missing %q:\n%s", want, html)
 			}

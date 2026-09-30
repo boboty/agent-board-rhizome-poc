@@ -50,10 +50,10 @@ func TestBoardHTMLRendersAttemptGateProgress(t *testing.T) {
 		t.Fatalf("renderServedBoardHTML() error = %v", err)
 	}
 	for name, html := range map[string]string{"static": staticHTML, "served": servedHTML} {
-		if !strings.Contains(html, "<th>Gates</th>") {
+		if !strings.Contains(html, "<th>关卡</th>") {
 			t.Fatalf("%s board is missing the Gates column header:\n%s", name, html)
 		}
-		if !strings.Contains(html, "1/2 satisfied") {
+		if !strings.Contains(html, "1/2 已满足") {
 			t.Fatalf("%s board is missing the gate progress text:\n%s", name, html)
 		}
 		if !strings.Contains(html, "impl-&lt;script&gt;alert(9)&lt;/script&gt;: attempt evidence &#34;impl&#34; missing") {
@@ -91,11 +91,11 @@ func TestIssueDetailHTMLRendersGateSection(t *testing.T) {
 		t.Fatalf("renderIssueDetailHTML() error = %v", err)
 	}
 	for _, want := range []string{
-		"<strong>Workflow gates</strong>",
-		"Evaluated at complete_work_to_done against the active attempt&#39;s frozen snapshot (fingerprint fp-abcd): 1 of 2 requirements satisfied.",
-		"<th scope=\"col\">Requirement</th>",
-		"<th scope=\"col\">Reason</th>",
-		"<th scope=\"col\">Next action</th>",
+		"<strong>工作流关卡</strong>",
+		"在 complete_work_to_done 节点评估（基于 执行快照（指纹 fp-abcd））：1/2 个条件满足",
+		"<th scope=\"col\">需求</th>",
+		"<th scope=\"col\">原因</th>",
+		"<th scope=\"col\">下一步操作</th>",
 		"<td>security-review</td>",
 		"review approval for purpose &#34;security&#34; &lt;b&gt;missing&lt;/b&gt;",
 		"obtain an approved review covering purpose &#34;security&#34;",
@@ -113,7 +113,7 @@ func TestIssueDetailHTMLRendersGateSection(t *testing.T) {
 	if err != nil {
 		t.Fatalf("renderIssueDetailHTML(no gates) error = %v", err)
 	}
-	if !strings.Contains(html, "No workflow gate requirements apply to this issue.") {
+	if !strings.Contains(html, "该任务无需通过工作流关卡") {
 		t.Fatalf("issue detail missing the no-policy compatibility line:\n%s", html)
 	}
 
@@ -122,10 +122,10 @@ func TestIssueDetailHTMLRendersGateSection(t *testing.T) {
 	if err != nil {
 		t.Fatalf("renderIssueDetailHTML(satisfied) error = %v", err)
 	}
-	if !strings.Contains(html, "All gate requirements are satisfied.") {
+	if !strings.Contains(html, "2/2 个条件满足") {
 		t.Fatalf("issue detail missing the all-satisfied line:\n%s", html)
 	}
-	if !strings.Contains(html, "against live policies: 2 of 2 requirements satisfied.") {
+	if !strings.Contains(html, "基于 实时策略") {
 		t.Fatalf("issue detail missing the live-policy status line:\n%s", html)
 	}
 }

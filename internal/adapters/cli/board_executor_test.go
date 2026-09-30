@@ -124,7 +124,7 @@ func TestBoardExecutorMetadataIsConsistentAcrossJSONTableAndHTML(t *testing.T) {
 		t.Fatalf("renderServedBoardHTML: %v", err)
 	}
 	for name, html := range map[string]string{"static": staticHTML, "served": servedHTML} {
-		for _, want := range []string{"<th>Instance</th>", "<th>Client</th>", "<th>Model</th>", "<th>Worktree</th>", "worker-1", "Codex CLI", "gpt-5", "/tmp/wt/AB-2"} {
+		for _, want := range []string{"<th>实例</th>", "<th>客户端</th>", "<th>模型</th>", "<th>工作目录</th>", "worker-1", "Codex CLI", "gpt-5", "/tmp/wt/AB-2"} {
 			if !strings.Contains(html, want) {
 				t.Fatalf("%s HTML is missing %q", name, want)
 			}

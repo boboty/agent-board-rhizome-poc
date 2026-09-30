@@ -1,5 +1,5 @@
 {{define "boardIssueDetailPage"}}<!doctype html>
-<html lang="en">
+<html lang="zh-CN">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -10,13 +10,13 @@
 
 <header class="board-header">
   <div class="board-header-left">
-    <h1 style="font-size:1rem"><a href="{{.ReturnHref}}" style="color:var(--ink);text-decoration:none;">&larr; Agent Board</a></h1>
+    <h1 style="font-size:1rem"><a href="{{.ReturnHref}}" style="color:var(--ink);text-decoration:none;">&larr; {{.UI.ProductName}}</a></h1>
   </div>
 </header>
 
 <main data-board-main data-board-endpoint="{{.BoardEndpoint}}" data-board-route="{{.BoardRoute}}" class="board-main">
 
-<p><a class="btn btn-sm" href="{{.ReturnHref}}">Return to board</a></p>
+<p><a class="btn btn-sm" href="{{.ReturnHref}}">{{.UI.ReturnToBoard}}</a></p>
 
 <h1 style="font-size:1.2rem;color:var(--ink);margin:8px 0;">{{.IssueHeading}}</h1>
 <p class="board-generated">{{.StatusLine}}</p>
@@ -25,17 +25,17 @@
 
 {{if .WritesEnabled}}
 <div style="background:var(--bg);border:1px solid var(--border-light);border-radius:var(--radius);padding:12px 16px;margin-bottom:16px;">
-<h2 style="font-size:0.9rem;font-weight:700;color:var(--ink);margin:0 0 10px;">Edit task</h2>
+<h2 style="font-size:0.9rem;font-weight:700;color:var(--ink);margin:0 0 10px;">{{.UI.EditTask}}</h2>
 <form class="board-form" method="post" action="/api/issues/{{.Identifier}}" data-board-write-form>
   <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
   <input type="hidden" name="expected_version" value="{{.EditVersion}}">
   <input type="hidden" name="return" value="/issues/{{.Identifier}}">
-  <label>Title <input type="text" name="title" value="{{.EditTitle}}" maxlength="300" required></label>
-  <label>Description <textarea name="description" rows="4">{{.EditDescription}}</textarea></label>
-  <label>Acceptance criteria <textarea name="acceptance_criteria" rows="4">{{.EditAcceptanceCriteria}}</textarea></label>
-  <label>Priority <select name="priority">{{range .Priorities}}<option value="{{.}}"{{if eq . $.EditPriority}} selected{{end}}>{{.}}</option>{{end}}</select></label>
+  <label>{{.UI.FieldTitle}} <input type="text" name="title" value="{{.EditTitle}}" maxlength="300" required></label>
+  <label>{{.UI.FieldDescription}} <textarea name="description" rows="4">{{.EditDescription}}</textarea></label>
+  <label>{{.UI.FieldAcceptanceCriteria}} <textarea name="acceptance_criteria" rows="4">{{.EditAcceptanceCriteria}}</textarea></label>
+  <label>{{.UI.FieldPriority}} <select name="priority">{{range .Priorities}}<option value="{{.}}"{{if eq . $.EditPriority}} selected{{end}}>{{.}}</option>{{end}}</select></label>
   <div class="board-form-actions">
-    <button class="btn btn-primary" type="submit">Save changes</button>
+    <button class="btn btn-primary" type="submit">{{.UI.SaveChanges}}</button>
   </div>
 </form>
 {{if .CanMoveToReady}}
@@ -43,104 +43,104 @@
   <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
   <input type="hidden" name="expected_version" value="{{.EditVersion}}">
   <input type="hidden" name="return" value="/issues/{{.Identifier}}">
-  <button class="btn btn-accent" type="submit">Move to READY</button>
+  <button class="btn btn-accent" type="submit">{{.UI.MoveToReady}}</button>
 </form>
 {{end}}
 </div>
 {{end}}
 
 <details class="board-details" open>
-<summary><strong>Metadata</strong></summary>
+<summary><strong>{{.UI.Metadata}}</strong></summary>
 {{range .Metadata}}<p><strong>{{.Label}}:</strong> {{.Value}}</p>
 {{end}}
 </details>
 
 <details class="board-details"{{if .HasLabels}} open{{end}}>
-<summary><strong>Labels</strong></summary>
-{{if .HasLabels}}<p>{{range $index, $label := .Labels}}{{if $index}}, {{end}}{{$label}}{{end}}</p>{{else}}<p class="board-empty">No labels assigned.</p>{{end}}
+<summary><strong>{{.UI.Labels}}</strong></summary>
+{{if .HasLabels}}<p>{{range $index, $label := .Labels}}{{if $index}}, {{end}}{{$label}}{{end}}</p>{{else}}<p class="board-empty">{{.UI.NoLabels}}</p>{{end}}
 </details>
 
 <details class="board-details"{{if not .Description.IsEmpty}} open{{end}}>
-<summary><strong>{{.Description.Heading}}</strong></summary>
-{{if .Description.IsEmpty}}<p class="board-empty">{{.Description.EmptyMessage}}</p>{{else}}<pre>{{.Description.Value}}</pre>{{end}}
+<summary><strong>{{.UI.FieldDescription}}</strong></summary>
+{{if .Description.IsEmpty}}<p class="board-empty">{{.UI.NoDescription}}</p>{{else}}<pre>{{.Description.Value}}</pre>{{end}}
 </details>
 
 <details class="board-details"{{if not .AcceptanceCriteria.IsEmpty}} open{{end}}>
-<summary><strong>{{.AcceptanceCriteria.Heading}}</strong></summary>
-{{if .AcceptanceCriteria.IsEmpty}}<p class="board-empty">{{.AcceptanceCriteria.EmptyMessage}}</p>{{else}}<pre>{{.AcceptanceCriteria.Value}}</pre>{{end}}
+<summary><strong>{{.UI.FieldAcceptanceCriteria}}</strong></summary>
+{{if .AcceptanceCriteria.IsEmpty}}<p class="board-empty">{{.UI.NoAcceptanceCriteria}}</p>{{else}}<pre>{{.AcceptanceCriteria.Value}}</pre>{{end}}
 </details>
 
 <details class="board-details"{{if not .BlockedReason.IsEmpty}} open{{end}}>
-<summary><strong>{{.BlockedReason.Heading}}</strong></summary>
-{{if .BlockedReason.IsEmpty}}<p class="board-empty">{{.BlockedReason.EmptyMessage}}</p>{{else}}<pre>{{.BlockedReason.Value}}</pre>{{end}}
+<summary><strong>{{.UI.BlockedReasonCol}}</strong></summary>
+{{if .BlockedReason.IsEmpty}}<p class="board-empty">{{.UI.NoBlockedReason}}</p>{{else}}<pre>{{.BlockedReason.Value}}</pre>{{end}}
 </details>
 
 <details class="board-details">
-<summary><strong>Workflow gates</strong></summary>
+<summary><strong>{{.UI.WorkflowGates}}</strong></summary>
 <p{{if .Gates.NoneApply}} class="board-empty"{{end}}>{{.Gates.StatusLine}}</p>
 {{if .Gates.HasUnmet}}
 <div class="table-scroll"><table>
-<thead><tr><th scope="col">Requirement</th><th scope="col">Reason</th><th scope="col">Next action</th></tr></thead>
+<thead><tr><th scope="col">{{.UI.GateRequirementCol}}</th><th scope="col">{{.UI.GateReasonCol}}</th><th scope="col">{{.UI.GateNextActionCol}}</th></tr></thead>
 <tbody>
 {{range .Gates.Unmet}}<tr><td>{{.RequirementKey}}</td><td>{{.Reason}}</td><td>{{.NextAction}}</td></tr>
 {{end}}</tbody>
 </table></div>
-{{else if .Gates.Satisfied}}<p>All gate requirements are satisfied.</p>{{end}}
+{{else if .Gates.Satisfied}}<p>{{.UI.GatesSatisfied}}</p>{{end}}
 </details>
 
 {{if .RootIssue}}<details class="board-details">
-<summary><strong>Root issue</strong></summary>
+<summary><strong>{{.UI.RootIssueSection}}</strong></summary>
 <p><a href="{{.RootIssue.Href}}">{{.RootIssue.Label}}</a></p>
 </details>{{end}}
 
 {{if .LatestAttempt}}<details class="board-details">
-<summary><strong>Latest attempt</strong></summary>
+<summary><strong>{{.UI.LatestAttemptSection}}</strong></summary>
 <p>{{.LatestAttempt.ID}}{{if .LatestAttempt.HasStarted}} — {{.LatestAttempt.StartedAt}}{{end}}</p>
 </details>{{end}}
 
 {{if .OpenReview}}<details class="board-details">
-<summary><strong>Open review</strong></summary>
+<summary><strong>{{.UI.OpenReviewSection}}</strong></summary>
 <p>{{.OpenReview.ID}}{{if .OpenReview.HasStatus}} — {{.OpenReview.Status}}{{end}}</p>
 </details>{{end}}
 
 {{if .LatestDecision}}<details class="board-details">
-<summary><strong>Latest decision</strong></summary>
+<summary><strong>{{.UI.LatestDecisionSection}}</strong></summary>
 <p>{{.LatestDecision.Title}}{{if .LatestDecision.HasSummary}} — {{.LatestDecision.Summary}}{{end}}</p>
 </details>{{end}}
 
 {{if .GraphSVG}}<details class="board-details">
-<summary><strong>Related graph</strong></summary>
+<summary><strong>{{.UI.RelatedGraph}}</strong></summary>
 {{.GraphSVG}}
 </details>{{end}}
 
 <details class="board-details">
-<summary><strong>Reservations</strong></summary>
-{{if .HasMoreReservations}}<p class="board-truncated">Additional reservations are available.</p>{{end}}
+<summary><strong>{{.UI.ReservationsSection}}</strong></summary>
+{{if .HasMoreReservations}}<p class="board-truncated">{{.UI.AdditionalReservations}}</p>{{end}}
 {{if .HasReservations}}
 <div class="table-scroll"><table>
-<thead><tr><th>Kind</th><th>Display value</th><th>Status</th><th>Created</th><th>Released</th></tr></thead>
+<thead><tr><th>{{.UI.AttemptKind}}</th><th>{{.UI.Count}}</th><th>{{.UI.DefaultStatus}}</th><th>{{.UI.CreatedLabel}}</th><th>{{.UI.UpdatedLabel}}</th></tr></thead>
 <tbody>
 {{range .Reservations}}<tr><td>{{.Kind}}</td><td>{{.DisplayValue}}</td><td>{{.Status}}</td><td>{{.CreatedAt}}</td><td>{{if .HasReleased}}{{.ReleasedAt}}{{else}}—{{end}}</td></tr>
 {{end}}</tbody>
 </table></div>
-{{else}}<p class="board-empty">No current or historical reservations.</p>
+{{else}}<p class="board-empty">{{.UI.NoReservations}}</p>
 {{end}}
 </details>
 
 <details class="board-details">
-<summary><strong>Recent activity</strong></summary>
+<summary><strong>{{.UI.RecentActivity}}</strong></summary>
 {{if .Activity.Items}}
-{{if .Activity.HasMore}}<p class="board-truncated">Additional activity is available.</p>{{end}}
+{{if .Activity.HasMore}}<p class="board-truncated">{{.UI.AdditionalActivity}}</p>{{end}}
 <ul>
 {{range .Activity.Items}}<li>{{.Summary}}{{if .HasDate}} <span class="board-generated">{{.OccurredAt}}</span>{{end}}</li>
 {{end}}</ul>
-{{else}}<p class="board-empty">No activity recorded yet.</p>{{end}}
+{{else}}<p class="board-empty">{{.UI.NoActivity}}</p>{{end}}
 </details>
 
 </main>
 
 <script>{{.LiveRefreshScript}}</script>
-<footer class="board-footer">Agent Board · Issue detail</footer>
+<footer class="board-footer">{{.UI.ProductName}} {{.UI.IssueDetailSuffix}}</footer>
 </body>
 </html>
 {{end}}

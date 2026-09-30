@@ -144,8 +144,22 @@ var boardWorkflowRenderers = []struct {
 
 // kanbanHeading is the markup that starts one rendered column heading, so a
 // test pins the heading rather than any incidental occurrence of its title.
-func kanbanHeading(title string, count int) string {
-	return `<h3 class="board-col-heading">` + title + ` <span class="board-col-count">` + strconv.Itoa(count) + `</span></h3>`
+func kanbanHeading(column string, count int) string {
+	ui := boardUIStringsZHCN()
+	heading := ""
+	switch column {
+	case "ready":
+		heading = ui.ColReady
+	case "in_progress":
+		heading = ui.ColInProgress
+	case "done":
+		heading = ui.ColDone
+	case "blocked":
+		heading = ui.ColBlocked
+	default:
+		heading = column
+	}
+	return `<h3 class="board-col-heading">` + heading + ` <span class="board-col-count">` + strconv.Itoa(count) + `</span></h3>`
 }
 
 // kanbanCardFor returns the rendered card segment for one
@@ -210,7 +224,7 @@ func TestBoardWorkflowKanbanRendersEveryColumnAndCard(t *testing.T) {
 				t.Fatalf("%s render error = %v", renderer.name, err)
 			}
 			for _, column := range result.Workflow.Columns {
-				heading := kanbanHeading(column.Title, column.Count)
+				heading := kanbanHeading(string(column.Column), column.Count)
 				if !strings.Contains(page, heading) {
 					t.Fatalf("%s page is missing column heading %q", renderer.name, heading)
 				}
@@ -252,12 +266,12 @@ func TestBoardWorkflowKanbanRendersEveryColumnAndCard(t *testing.T) {
 				if column == domain.BoardWorkflowColumnReady {
 					count = 1
 				}
-				heading := kanbanHeading(column.Title(), count)
+				heading := kanbanHeading(string(column), count)
 				if !strings.Contains(page, heading) {
 					t.Fatalf("%s page is missing empty-column heading %q", renderer.name, heading)
 				}
 			}
-			if got := strings.Count(page, "No cards."); got != 3 {
+			if got := strings.Count(page, "暂无卡片"); got != 3 {
 				t.Fatalf("%s page empty-column placeholder count = %d, want 3", renderer.name, got)
 			}
 		}
@@ -267,7 +281,7 @@ func TestBoardWorkflowKanbanRendersEveryColumnAndCard(t *testing.T) {
 // TestBoardWorkflowInProgressCardShowsSessionRuntime pins that the Kanban card
 // carries the same runtime attribution as the rest of the board: all five
 // executor fields and the lease expiry, with the role label distinguishing a
-// work attempt ("Developer") from a review attempt ("Verifier").
+// work attempt ("开发者") from a review attempt ("验证者").
 func TestBoardWorkflowInProgressCardShowsSessionRuntime(t *testing.T) {
 	result := boardWorkflowFixture()
 	page, err := renderServedBoardHTML(result)
@@ -277,7 +291,7 @@ func TestBoardWorkflowInProgressCardShowsSessionRuntime(t *testing.T) {
 
 	card := workflowDomainCardByIssue(t, result.Workflow, "ISSUE-102")
 	workCard := kanbanCardFor(t, page, "ISSUE-102")
-	for _, want := range []string{"Developer", "Luna", "worker-1", "Codex CLI", "gpt-5", "/tmp/wt/ISSUE-102"} {
+	for _, want := range []string{"开发者", "Luna", "worker-1", "Codex CLI", "gpt-5", "/tmp/wt/ISSUE-102"} {
 		if !strings.Contains(workCard, want) {
 			t.Fatalf("IN PROGRESS card is missing %q: %s", want, workCard)
 		}
@@ -288,15 +302,15 @@ func TestBoardWorkflowInProgressCardShowsSessionRuntime(t *testing.T) {
 	if lease := card.LeaseExpiresAt.UTC().Format(time.RFC3339); !strings.Contains(workCard, lease) {
 		t.Fatalf("IN PROGRESS card is missing lease expiry %q: %s", lease, workCard)
 	}
-	if !strings.Contains(workCard, "commit <code>abc1234</code>") {
+	if !strings.Contains(workCard, "提交 <code>abc1234</code>") {
 		t.Fatalf("IN PROGRESS card is missing its recorded delivery: %s", workCard)
 	}
 
 	reviewCard := kanbanCardFor(t, page, "ISSUE-103")
-	if !strings.Contains(reviewCard, "Verifier") {
-		t.Fatalf("review attempt card role = %s, want Verifier", reviewCard)
+	if !strings.Contains(reviewCard, "验证者") {
+		t.Fatalf("review attempt card role = %s, want 验证者", reviewCard)
 	}
-	if strings.Contains(reviewCard, "Developer") {
+	if strings.Contains(reviewCard, "开发者") {
 		t.Fatalf("review attempt card rendered a developer role: %s", reviewCard)
 	}
 }
@@ -314,7 +328,7 @@ func TestBoardWorkflowDegradesWithoutAttemptOrReview(t *testing.T) {
 	}
 
 	unattributed := kanbanCardFor(t, page, "ISSUE-101")
-	for _, forbidden := range []string{"Developer", "Verifier", "Delivery", "commit"} {
+	for _, forbidden := range []string{"开发者", "验证者", "Delivery", "commit"} {
 		if strings.Contains(unattributed, forbidden) {
 			t.Fatalf("card with no attempt, review, or delivery rendered %q: %s", forbidden, unattributed)
 		}
@@ -335,8 +349,8 @@ func TestBoardWorkflowDegradesWithoutAttemptOrReview(t *testing.T) {
 	if got := strings.Count(sparseCard, "—"); got != 5 {
 		t.Fatalf("session-less attempt card placeholders = %d, want 5: %s", got, sparseCard)
 	}
-	if !strings.Contains(sparseCard, "Developer") {
-		t.Fatalf("work attempt card missing its Developer role: %s", sparseCard)
+	if !strings.Contains(sparseCard, "开发者") {
+		t.Fatalf("work attempt card missing its 开发者 role: %s", sparseCard)
 	}
 }
 

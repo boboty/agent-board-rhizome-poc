@@ -179,7 +179,7 @@ func TestIntegrationBoardWriteLoopOverHTTP(t *testing.T) {
 
 	// Acceptance #8: the read side is untouched.
 	status, page := client.get("/")
-	if status != http.StatusOK || !strings.Contains(page, "+ New Task") {
+	if status != http.StatusOK || !strings.Contains(page, "新建任务") {
 		t.Fatalf("GET / = %d, page missing the board or the create form", status)
 	}
 	if status, _, _ := client.do(mustBoardRequest(t, http.MethodHead, client.base+"/", "")); status != http.StatusOK {

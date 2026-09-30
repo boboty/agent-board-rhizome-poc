@@ -79,10 +79,10 @@ func TestBoardWorkflowUnknownAttemptKindDegrades(t *testing.T) {
 	if err != nil {
 		t.Fatalf("renderServedBoardHTML: %v", err)
 	}
-	if strings.Contains(html, "Developer") || strings.Contains(html, "Verifier") {
+	if strings.Contains(html, "开发者") || strings.Contains(html, "验证者") {
 		t.Fatalf("unknown attempt kind was attributed a role:\n%s", html)
 	}
-	if !strings.Contains(html, "Executor") {
+	if !strings.Contains(html, "执行者") {
 		t.Fatalf("unknown attempt kind did not degrade to the neutral role:\n%s", html)
 	}
 }
@@ -150,9 +150,9 @@ func TestBoardWorkflowTruncationFlagsReachEverySurface(t *testing.T) {
 	}
 	for name, html := range map[string]string{"static": staticHTML, "served": servedHTML} {
 		for _, want := range []string{
-			"READY cards are cut", "IN PROGRESS cards read from stored review are cut",
-			"BLOCKED cards are cut", "DONE cards are cut",
-			"Review signals are cut", "more delivery references", "could not be read",
+			"待开始卡片已截断", "进行中卡片已截断",
+			"已阻塞卡片已截断", "已完成卡片已截断",
+			"验收信号已截断", "交付引用已截断", "交付引用无法读取",
 		} {
 			if !strings.Contains(html, want) {
 				t.Fatalf("%s HTML is missing truncation note %q", name, want)

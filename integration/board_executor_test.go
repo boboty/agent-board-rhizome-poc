@@ -153,7 +153,7 @@ func TestIntegrationBoardShowsActiveExecutorRuntimeInfo(t *testing.T) {
 		t.Fatalf("read board HTML output: %v", err)
 	}
 	htmlOutput := string(htmlBytes)
-	for _, want := range []string{"Instance", "worker-1", "Codex CLI", "gpt-5", "/tmp/wt/AB-2"} {
+	for _, want := range []string{"实例", "worker-1", "Codex CLI", "gpt-5", "/tmp/wt/AB-2"} {
 		if !strings.Contains(htmlOutput, want) {
 			t.Fatalf("board HTML output is missing %q:\n%s", want, htmlOutput)
 		}

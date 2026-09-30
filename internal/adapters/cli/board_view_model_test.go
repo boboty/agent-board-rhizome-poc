@@ -45,10 +45,10 @@ func TestBoardViewModelShowsTruncationMarkerWhenTruncated(t *testing.T) {
 
 	// Asserted on the rendered summary the template actually prints, not on a
 	// field, so this fails if the marker stops reaching the page.
-	if !strings.Contains(vm.PlanningGraphSummary, "(truncated)") {
-		t.Fatalf("planning graph summary = %q, want a (truncated) marker", vm.PlanningGraphSummary)
+	if !strings.Contains(vm.PlanningGraphSummary, "已截断") {
+		t.Fatalf("planning graph summary = %q, want a truncation marker", vm.PlanningGraphSummary)
 	}
-	if !strings.Contains(vm.PlanningGraphSummary, "2 nodes") {
+	if !strings.Contains(vm.PlanningGraphSummary, "2 个节点") {
 		t.Fatalf("planning graph summary = %q, want the retained node count", vm.PlanningGraphSummary)
 	}
 }
@@ -85,10 +85,10 @@ func TestBoardViewModelHidesTruncationMarkerWhenNotTruncated(t *testing.T) {
 
 	vm := newBoardStaticPageViewModel(result)
 
-	if strings.Contains(vm.PlanningGraphSummary, "truncated") {
+	if strings.Contains(vm.PlanningGraphSummary, "已截断") {
 		t.Fatalf("planning graph summary = %q, want no truncation marker", vm.PlanningGraphSummary)
 	}
-	if !strings.Contains(vm.PlanningGraphSummary, "2 nodes") {
+	if !strings.Contains(vm.PlanningGraphSummary, "2 个节点") {
 		t.Fatalf("planning graph summary = %q, want the node count", vm.PlanningGraphSummary)
 	}
 }
@@ -129,10 +129,10 @@ func TestBoardServedViewModelShowsTruncationMarkerWhenTruncated(t *testing.T) {
 
 	// Asserted on the rendered summary the template actually prints, not on a
 	// field, so this fails if the marker stops reaching the page.
-	if !strings.Contains(vm.PlanningGraphSummary, "(truncated)") {
-		t.Fatalf("planning graph summary = %q, want a (truncated) marker", vm.PlanningGraphSummary)
+	if !strings.Contains(vm.PlanningGraphSummary, "已截断") {
+		t.Fatalf("planning graph summary = %q, want a truncation marker", vm.PlanningGraphSummary)
 	}
-	if !strings.Contains(vm.PlanningGraphSummary, "2 nodes") {
+	if !strings.Contains(vm.PlanningGraphSummary, "2 个节点") {
 		t.Fatalf("planning graph summary = %q, want the retained node count", vm.PlanningGraphSummary)
 	}
 }

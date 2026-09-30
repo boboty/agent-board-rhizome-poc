@@ -406,7 +406,7 @@ func TestBoardWriteRejectsMissingFieldsAndKeepsReadOnlyBoardsReadOnly(t *testing
 	}
 	recorder = httptest.NewRecorder()
 	handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/", nil))
-	if recorder.Code != http.StatusOK || !strings.Contains(recorder.Body.String(), "+ New Task") {
+	if recorder.Code != http.StatusOK || !strings.Contains(recorder.Body.String(), "新建任务") {
 		t.Fatalf("writable GET / = %d", recorder.Code)
 	}
 
@@ -447,9 +447,10 @@ func TestBoardWriteControlsRenderOnlyWhereWritesExist(t *testing.T) {
 		t.Fatalf("renderServedBoardPage: %v", err)
 	}
 	for _, want := range []string{
-		`action="/api/issues/ISSUE-1/rank"`, `value="3"`, "Move up", "Move down",
-		`action="/api/issues/ISSUE-3/ready"`, `value="4"`, "Move to READY",
-		`name="csrf_token" value="served-token"`, "New Task",
+		`action="/api/issues/ISSUE-1/rank"`, `value="3"`, "上移", "下移",
+		`action="/api/issues/ISSUE-3/ready"`, `value="4"`, "移入待开始",
+		`name="csrf_token" value="served-token"`, "新建任务",
+		`name="csrf_token" value="served-token"`, "创建任务",
 	} {
 		if !strings.Contains(writable, want) {
 			t.Fatalf("writable served board is missing %q", want)

@@ -1,9 +1,11 @@
 {{define "boardWorkflowSection"}}
+{{$wf := .Workflow}}
+{{$ui := .UI}}
 <div class="board-columns">
-{{range .Columns}}
+{{range $wf.Columns}}
 <div class="board-col" data-column="{{.Column}}">
-<h3 class="board-col-heading">{{.Title}} <span class="board-col-count">{{.Count}}</span></h3>
-{{if .IsEmpty}}<div class="board-empty">No cards.</div>{{else}}
+<h3 class="board-col-heading">{{if eq .Column "ready"}}{{$ui.ColReady}}{{else if eq .Column "in_progress"}}{{$ui.ColInProgress}}{{else if eq .Column "done"}}{{$ui.ColDone}}{{else if eq .Column "blocked"}}{{$ui.ColBlocked}}{{else}}{{.Title}}{{end}} <span class="board-col-count">{{.Count}}</span></h3>
+{{if .IsEmpty}}<div class="board-empty">{{$ui.NoCards}}</div>{{else}}
 <div class="board-col-cards">
 {{range .Cards}}
 <div class="board-card{{if .HasBlockedReason}} board-card-blocked{{end}}" data-issue="{{.IssueLabel}}">
@@ -18,27 +20,27 @@
   {{end}}
 
   {{if .HasReadyRank}}
-  <div class="board-card-meta">READY rank {{.ReadyRank}}</div>
+  <div class="board-card-meta">{{$ui.ReadyRank}} {{.ReadyRank}}</div>
   {{end}}
 
   {{if .HasAttempt}}
   <div class="board-card-meta">
     {{.ExecutorRole}} · {{.ExecutorLabel}} · {{.ExecutorModel}}<br>
     {{.ExecutorClient}} · {{.ExecutorInstanceKey}} · {{.ExecutorWorktree}}
-    {{if .HasLeaseExpiry}}<br>lease {{.LeaseExpiresAt}}{{end}}
+    {{if .HasLeaseExpiry}}<br>{{$ui.LeaseExpiry}} {{.LeaseExpiresAt}}{{end}}
   </div>
   {{end}}
 
   {{if .HasReview}}
   <div class="board-card-meta">
-    Review: <span class="board-card-review-{{if eq .ReviewStatus "approved"}}approved{{else}}open{{end}}">{{.ReviewStatus}}</span>
-    {{if .HasChangesRequested}} · {{.ChangesRequestedCount}} change(s) requested{{end}}
+    {{$ui.ReviewLabel}}: <span class="board-card-review-{{if eq .ReviewStatus "approved"}}approved{{else}}open{{end}}">{{.ReviewStatus}}</span>
+    {{if .HasChangesRequested}} · {{.ChangesRequestedCount}}{{$ui.ChangesRequested}}{{end}}
   </div>
   {{end}}
 
   {{if .HasDelivery}}
   <ul class="board-delivery">
-  {{range .Delivery}}<li>{{.Type}} <code>{{.URI}}</code>{{if .Title}} {{.Title}}{{end}}</li>
+  {{range .Delivery}}<li>{{if eq .Type "commit"}}{{$ui.DeliveryCommit}}{{else if eq .Type "branch"}}{{$ui.DeliveryBranch}}{{else if eq .Type "pull_request"}}{{$ui.DeliveryPR}}{{else}}{{.Type}}{{end}} <code>{{.URI}}</code>{{if .Title}} {{.Title}}{{end}}</li>
   {{end}}
   </ul>
   {{end}}
@@ -46,16 +48,16 @@
   {{if .CanReorder}}
   <div class="board-card-actions">
     <form method="post" action="/api/issues/{{.IssueLabel}}/rank" data-board-write-form>
-      <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+      <input type="hidden" name="csrf_token" value="{{$wf.CSRFToken}}">
       <input type="hidden" name="expected_version" value="{{.Version}}">
       <input type="hidden" name="direction" value="up">
-      <button class="btn btn-sm" type="submit" aria-label="Move {{.IssueLabel}} earlier in READY">Move up</button>
+      <button class="btn btn-sm" type="submit" aria-label="{{$ui.MoveUp}}">{{$ui.MoveUp}}</button>
     </form>
     <form method="post" action="/api/issues/{{.IssueLabel}}/rank" data-board-write-form>
-      <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+      <input type="hidden" name="csrf_token" value="{{$wf.CSRFToken}}">
       <input type="hidden" name="expected_version" value="{{.Version}}">
       <input type="hidden" name="direction" value="down">
-      <button class="btn btn-sm" type="submit" aria-label="Move {{.IssueLabel}} later in READY">Move down</button>
+      <button class="btn btn-sm" type="submit" aria-label="{{$ui.MoveDown}}">{{$ui.MoveDown}}</button>
     </form>
   </div>
   {{end}}
@@ -67,29 +69,29 @@
 {{end}}
 </div>
 
-{{if .ReadyTruncated}}<p class="board-truncated">READY cards are cut at the collection limit; more may exist.</p>{{end}}
-{{if .StoredReviewTruncated}}<p class="board-truncated">IN PROGRESS cards read from stored review are cut at the collection limit; more may exist.</p>{{end}}
-{{if .BlockedTruncated}}<p class="board-truncated">BLOCKED cards are cut at the collection limit; more may exist.</p>{{end}}
-{{if .DoneTruncated}}<p class="board-truncated">DONE cards are cut at the collection limit; more may exist.</p>{{end}}
-{{if .ReviewTruncated}}<p class="board-truncated">Review signals are cut at the collection limit; a card's review state may be older than the newest request.</p>{{end}}
-{{if .DeliveryTruncated}}<p class="board-truncated">Some cards have more delivery references than the card shows; open the issue for the full list.</p>{{end}}
-{{if .DeliveryUnavailable}}<p class="board-truncated">Some cards' delivery references could not be read; the cards are shown without them.</p>{{end}}
+{{if $wf.ReadyTruncated}}<p class="board-truncated">{{$ui.TruncatedReady}}</p>{{end}}
+{{if $wf.StoredReviewTruncated}}<p class="board-truncated">{{$ui.TruncatedInProgress}}</p>{{end}}
+{{if $wf.BlockedTruncated}}<p class="board-truncated">{{$ui.TruncatedBlocked}}</p>{{end}}
+{{if $wf.DoneTruncated}}<p class="board-truncated">{{$ui.TruncatedDone}}</p>{{end}}
+{{if $wf.ReviewTruncated}}<p class="board-truncated">{{$ui.TruncatedReview}}</p>{{end}}
+{{if $wf.DeliveryTruncated}}<p class="board-truncated">{{$ui.TruncatedDelivery}}</p>{{end}}
+{{if $wf.DeliveryUnavailable}}<p class="board-truncated">{{$ui.TruncatedDeliveryUnavailable}}</p>{{end}}
 
-{{if .HasUnprojected}}
+{{if $wf.HasUnprojected}}
 <details class="board-unprojected">
-<summary>Not on the workflow board ({{len .Unprojected}})</summary>
-<p class="board-generated">These issues are real project state but no workflow column describes them, so the board reports them instead of guessing a column.</p>
+<summary>{{$ui.UnprojectedSummary}}（{{len $wf.Unprojected}}）</summary>
+<p class="board-generated">{{$ui.UnprojectedDesc}}</p>
 <div class="table-scroll"><table>
-<thead><tr><th>Issue</th><th>Title</th><th>Stored status</th><th>Reason</th><th>Detail</th><th>Action</th></tr></thead>
+<thead><tr><th>{{$ui.UnprojectedIssue}}</th><th>{{$ui.UnprojectedTitle}}</th><th>{{$ui.UnprojectedStatus}}</th><th>{{$ui.UnprojectedReason}}</th><th>{{$ui.UnprojectedDetail}}</th><th>{{$ui.UnprojectedAction}}</th></tr></thead>
 <tbody>
-{{range .Unprojected}}<tr><td>{{if .HasIssueLink}}<a href="{{.IssueHref}}">{{.IssueLabel}}</a>{{else}}{{.IssueLabel}}{{end}}</td><td>{{.Title}}</td><td>{{.StoredStatus}}</td><td>{{.Reason}}</td><td>{{.Detail}}</td><td>{{if .CanMoveToReady}}<form method="post" action="/api/issues/{{.IssueLabel}}/ready" data-board-write-form>
-<input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+{{range $wf.Unprojected}}<tr><td>{{if .HasIssueLink}}<a href="{{.IssueHref}}">{{.IssueLabel}}</a>{{else}}{{.IssueLabel}}{{end}}</td><td>{{.Title}}</td><td>{{.StoredStatus}}</td><td>{{.Reason}}</td><td>{{.Detail}}</td><td>{{if .CanMoveToReady}}<form method="post" action="/api/issues/{{.IssueLabel}}/ready" data-board-write-form>
+<input type="hidden" name="csrf_token" value="{{$wf.CSRFToken}}">
 <input type="hidden" name="expected_version" value="{{.Version}}">
-<button class="btn btn-sm" type="submit" aria-label="Queue {{.IssueLabel}} into READY">Move to READY</button>
+<button class="btn btn-sm" type="submit" aria-label="{{$ui.UnprojectedQueue}}">{{$ui.UnprojectedQueue}}</button>
 </form>{{else}}—{{end}}</td></tr>
 {{end}}</tbody>
 </table></div>
-{{if .UnprojectedTruncated}}<p class="board-truncated">Showing the first 100 not-projected issues; more exist.</p>{{end}}
+{{if $wf.UnprojectedTruncated}}<p class="board-truncated">{{$ui.TruncatedUnprojected}}</p>{{end}}
 </details>
 {{end}}
 {{end}}

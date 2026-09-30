@@ -262,15 +262,22 @@ body {
 }
 
 .btn-accent {
-  background: var(--accent);
-  color: #000;
-  border-color: var(--accent);
+  background: var(--ink);
+  color: #fff;
+  border-color: var(--ink);
   font-weight: 600;
 }
 
 .btn-accent:hover {
-  background: var(--accent-dim);
-  border-color: var(--accent-dim);
+  background: #1a3329;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+.btn-accent:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent);
 }
 
 .btn-sm {
