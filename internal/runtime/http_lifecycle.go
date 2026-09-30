@@ -32,18 +32,21 @@ const (
 
 // HTTPServerOptions configures the loopback-only HTTP lifecycle.
 type HTTPServerOptions struct {
-	Address             string
-	Logger              *slog.Logger
-	Handler             http.Handler
-	ShutdownTimeout     time.Duration
-	ReadHeaderTimeout   time.Duration
-	ReadTimeout         time.Duration
-	WriteTimeout        time.Duration
-	IdleTimeout         time.Duration
-	MaxHeaderBytes      int
-	MaxRequestBodyBytes int64
-	OnListener          func(net.Listener)
-	Listen              func(network, address string) (net.Listener, error)
+	// AllowSameOriginNullOrigin permits opaque browser origins with explicit
+	// same-origin metadata. Enable only for handlers with their own CSRF defense.
+	AllowSameOriginNullOrigin bool
+	Address                   string
+	Logger                    *slog.Logger
+	Handler                   http.Handler
+	ShutdownTimeout           time.Duration
+	ReadHeaderTimeout         time.Duration
+	ReadTimeout               time.Duration
+	WriteTimeout              time.Duration
+	IdleTimeout               time.Duration
+	MaxHeaderBytes            int
+	MaxRequestBodyBytes       int64
+	OnListener                func(net.Listener)
+	Listen                    func(network, address string) (net.Listener, error)
 }
 
 type statusRecorder struct {
@@ -97,16 +100,16 @@ func (r *statusRecorder) Write(data []byte) (int, error) {
 // and origin against the configured loopback endpoint before the next handler
 // runs, and by recovering panics to return a 500 without leaking payloads.
 func WrapHTTPHandler(handler http.Handler, authority string, logger *slog.Logger) http.Handler {
-	return wrapHTTPHandler(handler, authority, logger, 0)
+	return wrapHTTPHandler(handler, authority, logger, 0, false)
 }
 
 // WrapHTTPHandlerWithBodyLimit hardens a local HTTP handler and applies a
 // request-body size limit before the next handler runs.
 func WrapHTTPHandlerWithBodyLimit(handler http.Handler, authority string, logger *slog.Logger, maxRequestBodyBytes int64) http.Handler {
-	return wrapHTTPHandler(handler, authority, logger, maxRequestBodyBytes)
+	return wrapHTTPHandler(handler, authority, logger, maxRequestBodyBytes, false)
 }
 
-func wrapHTTPHandler(handler http.Handler, authority string, logger *slog.Logger, maxRequestBodyBytes int64) http.Handler {
+func wrapHTTPHandler(handler http.Handler, authority string, logger *slog.Logger, maxRequestBodyBytes int64, allowSameOriginNullOrigin bool) http.Handler {
 	if handler == nil {
 		handler = http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			http.Error(w, http.StatusText(http.StatusServiceUnavailable), http.StatusServiceUnavailable)
@@ -152,7 +155,7 @@ func wrapHTTPHandler(handler http.Handler, authority string, logger *slog.Logger
 			logger.Info("http request completed", attrs...)
 		}()
 
-		if err := validateRequest(request, authority); err != nil {
+		if err := validateRequestWithOriginPolicy(request, authority, allowSameOriginNullOrigin); err != nil {
 			switch {
 			case errors.Is(err, errInvalidRequestHost):
 				http.Error(recorder, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
@@ -190,6 +193,10 @@ func requestPath(request *http.Request) string {
 }
 
 func validateRequest(request *http.Request, authority string) error {
+	return validateRequestWithOriginPolicy(request, authority, false)
+}
+
+func validateRequestWithOriginPolicy(request *http.Request, authority string, allowSameOriginNullOrigin bool) error {
 	if request == nil {
 		return errInvalidRequestHost
 	}
@@ -221,6 +228,12 @@ func validateRequest(request *http.Request, authority string) error {
 	origin := strings.TrimSpace(request.Header.Get("Origin"))
 	if origin == "" {
 		return nil
+	}
+	if allowSameOriginNullOrigin && origin == "null" {
+		site := strings.ToLower(strings.TrimSpace(request.Header.Get("Sec-Fetch-Site")))
+		if site == "same-origin" || site == "none" {
+			return nil
+		}
 	}
 	scheme := "http"
 	if request.TLS != nil {
@@ -326,7 +339,7 @@ func ServeHTTPServer(ctx context.Context, options HTTPServerOptions) error {
 	baseCtx, cancelBaseCtx := context.WithCancel(context.Background())
 	defer cancelBaseCtx()
 
-	hardeningHandler := WrapHTTPHandlerWithBodyLimit(options.Handler, listener.Addr().String(), options.Logger, options.MaxRequestBodyBytes)
+	hardeningHandler := wrapHTTPHandler(options.Handler, listener.Addr().String(), options.Logger, options.MaxRequestBodyBytes, options.AllowSameOriginNullOrigin)
 	server := &http.Server{
 		Handler:           hardeningHandler,
 		ReadHeaderTimeout: options.ReadHeaderTimeout,

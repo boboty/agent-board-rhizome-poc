@@ -635,9 +635,10 @@ func runBoardServe(ctx context.Context, cfg *config.Config, stdout io.Writer, bo
 		handler = cliadapter.NewBoardHTTPHandler(boardService)
 	}
 	return projectruntime.ServeHTTPServer(ctx, projectruntime.HTTPServerOptions{
-		Address: cfg.HTTPAddress,
-		Logger:  logger,
-		Handler: handler,
+		Address:                   cfg.HTTPAddress,
+		Logger:                    logger,
+		Handler:                   handler,
+		AllowSameOriginNullOrigin: writeService != nil,
 		OnListener: func(listener net.Listener) {
 			_, _ = fmt.Fprintf(stdout, "%s\n", boardServeURL(listener))
 		},
