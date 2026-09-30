@@ -129,6 +129,30 @@ func EffectiveStatusFor(stored Status, hasActiveAttempt bool) (EffectiveStatus, 
 	return EffectiveStatus(stored), nil
 }
 
+// MaxReadyRank bounds an issue's explicit READY-queue position. It is
+// deliberately far below the "unranked" sort sentinel the issue list query
+// substitutes for a NULL rank, so a stored rank can never collide with the
+// unranked bucket. The bound keeps the value comfortably inside a 64-bit
+// integer column and inside JSON number precision for every JS client.
+const MaxReadyRank int64 = 1_000_000_000
+
+// ValidateReadyRank checks an optional READY-queue position. A nil value means
+// "no explicit position" and is always valid.
+func ValidateReadyRank(field string, value *int64) error {
+	if value == nil {
+		return nil
+	}
+	if *value < 0 || *value > MaxReadyRank {
+		return NewError(
+			CodeInvalidArgument,
+			fmt.Sprintf("%s must be between 0 and %d", field, MaxReadyRank),
+			false,
+			Detail{Field: field, Code: "OUT_OF_RANGE", Message: fmt.Sprintf("0..%d", MaxReadyRank)},
+		)
+	}
+	return nil
+}
+
 // Priority is an issue's urgency classification.
 type Priority string
 

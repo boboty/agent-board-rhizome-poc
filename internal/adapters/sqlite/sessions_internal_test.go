@@ -33,6 +33,7 @@ func TestLoadAgentSessionMapsMalformedStoredIDToStorageCorrupt(t *testing.T) {
 			agent_label TEXT,
 			model TEXT,
 			instance_key TEXT,
+			worktree TEXT,
 			started_at TEXT NOT NULL,
 			last_seen_at TEXT NOT NULL,
 			ended_at TEXT
@@ -40,9 +41,9 @@ func TestLoadAgentSessionMapsMalformedStoredIDToStorageCorrupt(t *testing.T) {
 			return err
 		}
 		_, err := tx.ExecContext(ctx, `INSERT INTO agent_sessions(
-			id, client_name, client_version, agent_label, model, instance_key,
+			id, client_name, client_version, agent_label, model, instance_key, worktree,
 			started_at, last_seen_at, ended_at
-		) VALUES (?, ?, NULL, NULL, NULL, NULL, ?, ?, NULL)`,
+		) VALUES (?, ?, NULL, NULL, NULL, NULL, NULL, ?, ?, NULL)`,
 			sessionID, "client", timestamp, timestamp)
 		return err
 	}); err != nil {

@@ -73,14 +73,15 @@ func TestIssueSummaryMatchesMCPIssueFields(t *testing.T) {
 	// Populated, not zero-valued: omitempty fields such as parent_issue_id
 	// vanish from a zero value, which would make this test miss a rename.
 	parent := "01ARZ3NDEKTSV4RRFFQ69G5FAV"
-	cliKeys := jsonKeysOf(t, IssueSummary{ParentIssueID: &parent})
+	rank := int64(3)
+	cliKeys := jsonKeysOf(t, IssueSummary{ParentIssueID: &parent, ReadyRank: &rank})
 
 	// The MCP issue list item field set: issueDTO embedded in issueListItemDTO
 	// (internal/adapters/mcp/dto.go). Transcribed because those DTOs are
 	// unexported; keep in step if they change.
 	mcpKeys := []string{
 		"id", "display_id", "sequence_no", "type", "title", "description",
-		"acceptance_criteria", "status", "priority", "parent_issue_id",
+		"acceptance_criteria", "status", "priority", "ready_rank", "parent_issue_id",
 		"blocked_reason", "version", "created_at", "updated_at", "closed_at",
 		"archived_at", "labels", "effective_status", "unresolved_blocker_count",
 		"is_blocked", "is_claimable", "active_attempt_id",

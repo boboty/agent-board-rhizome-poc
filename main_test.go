@@ -204,10 +204,18 @@ func TestProjectsMigrateCommandMigratesStaleProject(t *testing.T) {
 		t.Fatalf("open project database: %v", err)
 	}
 	if err := db.Write(ctx, func(ctx context.Context, tx sqlite.Executor) error {
-		if _, err := tx.ExecContext(ctx, "DELETE FROM schema_migrations WHERE version = ?", migrations.CurrentVersion()); err != nil {
+		// Roll the newest two migrations back so forward migration has real
+		// work to do; see the matching fixture in internal/runtime.
+		if _, err := tx.ExecContext(ctx, "DELETE FROM schema_migrations WHERE version >= ?", migrations.CurrentVersion()-1); err != nil {
 			return err
 		}
 		if _, err := tx.ExecContext(ctx, "ALTER TABLE projects DROP COLUMN origin"); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, "ALTER TABLE issues DROP COLUMN ready_rank"); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, "ALTER TABLE agent_sessions DROP COLUMN worktree"); err != nil {
 			return err
 		}
 		return nil

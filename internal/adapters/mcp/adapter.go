@@ -390,7 +390,7 @@ func (target *adapter) register(server *sdkmcp.Server) {
 func (adapter *adapter) createAgentSession(ctx context.Context, request *sdkmcp.CallToolRequest, input createAgentSessionInput) (*sdkmcp.CallToolResult, any, error) {
 	result, err := adapter.services.SessionService.CreateWithHandle(ctx, domain.CreateAgentSessionInput{
 		ClientName: input.ClientName, ClientVersion: input.ClientVersion, AgentLabel: input.AgentLabel,
-		Model: input.Model, InstanceKey: input.InstanceKey,
+		Model: input.Model, InstanceKey: input.InstanceKey, Worktree: input.Worktree,
 	})
 	if err != nil {
 		return adapter.failure(err)
@@ -1007,6 +1007,7 @@ func (adapter *adapter) createIssue(ctx context.Context, request *sdkmcp.CallToo
 		AcceptanceCriteria:  input.AcceptanceCriteria,
 		Status:              domain.Status(input.Status),
 		Priority:            domain.Priority(input.Priority),
+		ReadyRank:           input.ReadyRank,
 		ParentID:            input.ParentIssueID,
 		BlockedReason:       input.BlockedReason,
 		Labels:              input.Labels,

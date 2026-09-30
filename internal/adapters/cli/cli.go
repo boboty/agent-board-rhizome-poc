@@ -1438,6 +1438,7 @@ type IssueSummary struct {
 	AcceptanceCriteria     *string    `json:"acceptance_criteria,omitempty"`
 	Status                 string     `json:"status"`
 	Priority               string     `json:"priority"`
+	ReadyRank              *int64     `json:"ready_rank,omitempty"`
 	ParentIssueID          *string    `json:"parent_issue_id,omitempty"`
 	BlockedReason          *string    `json:"blocked_reason,omitempty"`
 	Version                int64      `json:"version"`
@@ -1483,6 +1484,7 @@ func issueFromDomain(issue domain.Issue) IssueSummary {
 		AcceptanceCriteria:  copyOptionalString(issue.AcceptanceCriteria),
 		Status:              string(issue.Status),
 		Priority:            string(issue.Priority),
+		ReadyRank:           copyOptionalInt64(issue.ReadyRank),
 		ParentIssueID:       copyOptionalString(issue.ParentID),
 		BlockedReason:       copyOptionalString(issue.BlockedReason),
 		Version:             issue.Version,
@@ -1794,6 +1796,14 @@ func toDomainRelationTypes(values []string) []domain.RelationType {
 }
 
 func copyOptionalString(value *string) *string {
+	if value == nil {
+		return nil
+	}
+	copy := *value
+	return &copy
+}
+
+func copyOptionalInt64(value *int64) *int64 {
 	if value == nil {
 		return nil
 	}

@@ -228,6 +228,7 @@ canonical uniqueness for relations
 foreign keys enabled
 enum CHECK constraints
 blocked status requires blocked_reason
+ready_rank range CHECK (NULL or 0..1000000000)
 ```
 
 Critical partial unique index:

@@ -23,11 +23,21 @@ type OptionalString struct {
 	Value *string
 }
 
+// OptionalInt64 represents an optionally supplied nullable integer patch
+// field. Set false means absent, while Set true with Value nil means explicit
+// null.
+type OptionalInt64 struct {
+	Set   bool
+	Value *int64
+}
+
 // IssuePatch contains the fields supported by this internal update slice.
 // Labels has set semantics: Set false preserves assignments, while Set true
 // replaces them with a non-nil list, including an explicit empty list. A
 // successful patch emits one event: status_changed takes precedence when Status
-// is set; otherwise a labels patch emits labels_changed.
+// is set; otherwise a labels patch emits labels_changed. ReadyRank has the same
+// absent/null/value semantics as the other nullable fields: absent preserves
+// the stored position and an explicit null clears it.
 type IssuePatch struct {
 	Title              OptionalValue[string]
 	Description        OptionalString
@@ -35,6 +45,7 @@ type IssuePatch struct {
 	Type               OptionalValue[Type]
 	Priority           OptionalValue[Priority]
 	Status             OptionalValue[Status]
+	ReadyRank          OptionalInt64
 	ParentID           OptionalString
 	BlockedReason      OptionalString
 	Labels             OptionalValue[[]string]
@@ -95,6 +106,11 @@ func (input UpdateIssueInput) Validate() (normalized UpdateIssueInput, err error
 	}
 	if patch.Status.Set && !patch.Status.Value.Valid() {
 		return UpdateIssueInput{}, invalidEnum("status", string(patch.Status.Value))
+	}
+	if patch.ReadyRank.Set {
+		if err := ValidateReadyRank("ready_rank", patch.ReadyRank.Value); err != nil {
+			return UpdateIssueInput{}, err
+		}
 	}
 	if patch.ParentID.Set && patch.ParentID.Value != nil {
 		if err := ValidateText("parent_id", *patch.ParentID.Value, -1); err != nil {
@@ -199,6 +215,10 @@ func ApplyIssuePatch(current Issue, patch IssuePatch) (Issue, []string, error) {
 		result.Priority = patch.Priority.Value
 		changed["priority"] = true
 	}
+	if patch.ReadyRank.Set {
+		result.ReadyRank = copyInt64(patch.ReadyRank.Value)
+		changed["ready_rank"] = true
+	}
 	if patch.ParentID.Set {
 		result.ParentID = copyString(patch.ParentID.Value)
 		changed["parent_id"] = true
@@ -276,13 +296,14 @@ func ApplyIssuePatch(current Issue, patch IssuePatch) (Issue, []string, error) {
 
 func (patch IssuePatch) anySet() bool {
 	return patch.Title.Set || patch.Description.Set || patch.AcceptanceCriteria.Set ||
-		patch.Type.Set || patch.Priority.Set || patch.Status.Set ||
+		patch.Type.Set || patch.Priority.Set || patch.Status.Set || patch.ReadyRank.Set ||
 		patch.ParentID.Set || patch.BlockedReason.Set || patch.Labels.Set
 }
 
 func copyIssuePatch(patch IssuePatch) IssuePatch {
 	patch.Description.Value = copyString(patch.Description.Value)
 	patch.AcceptanceCriteria.Value = copyString(patch.AcceptanceCriteria.Value)
+	patch.ReadyRank.Value = copyInt64(patch.ReadyRank.Value)
 	patch.ParentID.Value = copyString(patch.ParentID.Value)
 	patch.BlockedReason.Value = copyString(patch.BlockedReason.Value)
 	if patch.Labels.Set && patch.Labels.Value != nil {

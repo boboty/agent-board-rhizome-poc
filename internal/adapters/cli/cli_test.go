@@ -990,6 +990,27 @@ func TestIssueShowAndListComputedFieldsMatch(t *testing.T) {
 	})
 }
 
+func TestIssueListJSONCarriesReadyRank(t *testing.T) {
+	rank := int64(3)
+	var stdout, stderr bytes.Buffer
+	services := Services{IssueService: &stubIssueService{listPage: domain.IssueList{Items: []domain.IssueProjection{
+		{Issue: domain.Issue{ID: "i-1", DisplayID: "ISSUE-1", Title: "First", Status: domain.StatusReady, ReadyRank: &rank}},
+		{Issue: domain.Issue{ID: "i-2", DisplayID: "ISSUE-2", Title: "Second", Status: domain.StatusReady}},
+	}}}}
+	cli := New(services, &stdout, &stderr, nil, nil)
+	if err := cli.Run(context.Background(), []string{"issue", "list", "--format", "json"}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	output := stdout.String()
+	if !strings.Contains(output, `"ready_rank": 3`) {
+		t.Fatalf("issue list JSON = %s, want ready_rank 3", output)
+	}
+	// An unranked issue omits the field rather than emitting a misleading 0.
+	if strings.Count(output, "ready_rank") != 1 {
+		t.Fatalf("issue list JSON = %s, want exactly one ready_rank", output)
+	}
+}
+
 func strPtr(value string) *string {
 	return &value
 }

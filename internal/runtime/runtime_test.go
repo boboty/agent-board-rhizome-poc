@@ -345,10 +345,21 @@ func TestMigrateExistingProjectMigratesStaleProject(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := db.Write(context.Background(), func(ctx context.Context, tx sqlite.Executor) error {
-		if _, err := tx.ExecContext(ctx, "DELETE FROM schema_migrations WHERE version = ?", migrations.CurrentVersion()); err != nil {
+		// Simulate a database written by a binary that predates the newest
+		// two migrations: drop their history rows and reverse their DDL, so
+		// forward migration has to re-apply both. The appended columns make
+		// the rollback cheap; any future migration whose DDL cannot be
+		// reversed this way needs its own staleness fixture instead.
+		if _, err := tx.ExecContext(ctx, "DELETE FROM schema_migrations WHERE version >= ?", migrations.CurrentVersion()-1); err != nil {
 			return err
 		}
 		if _, err := tx.ExecContext(ctx, "ALTER TABLE projects DROP COLUMN origin"); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, "ALTER TABLE issues DROP COLUMN ready_rank"); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, "ALTER TABLE agent_sessions DROP COLUMN worktree"); err != nil {
 			return err
 		}
 		return nil

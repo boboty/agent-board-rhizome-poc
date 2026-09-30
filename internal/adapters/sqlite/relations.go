@@ -252,7 +252,7 @@ func loadRelationAffectedIssues(ctx context.Context, tx Executor, sourceID, targ
 	rows, err := tx.QueryContext(ctx, `SELECT id, sequence_no, type, title, description, acceptance_criteria,
 		status, priority, parent_id, blocked_reason, version,
 		created_by_session_id, created_at, updated_at, closed_at,
-		archived_at, archived_by_session_id,
+		archived_at, archived_by_session_id, ready_rank,
 		`+issueUnresolvedBlockerCountSQL+` AS unresolved_blocker_count,
 		`+issueBlockedSQL+` AS is_blocked,
 		`+claimableSQL+` AS is_claimable,

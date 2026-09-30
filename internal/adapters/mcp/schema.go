@@ -163,6 +163,10 @@ func boundedIntegerSchema(minimum, maximum int) *jsonschema.Schema {
 	min, max := float64(minimum), float64(maximum)
 	return &jsonschema.Schema{Type: "integer", Minimum: &min, Maximum: &max}
 }
+func nullableBoundedIntegerSchema(minimum, maximum int) *jsonschema.Schema {
+	min, max := float64(minimum), float64(maximum)
+	return &jsonschema.Schema{Types: []string{"integer", "null"}, Minimum: &min, Maximum: &max}
+}
 func booleanSchema() *jsonschema.Schema { return &jsonschema.Schema{Type: "boolean"} }
 func stringsSchema() *jsonschema.Schema {
 	return &jsonschema.Schema{Type: "array", Items: stringSchema()}
@@ -229,6 +233,7 @@ func schemaCreateAgentSession() *jsonschema.Schema {
 		"agent_label":    withDescription(nullableBoundedStringSchema(256), "Optional human-readable agent identity."),
 		"model":          withDescription(nullableBoundedStringSchema(256), "Optional model identifier."),
 		"instance_key":   withDescription(nullableBoundedStringSchema(256), "Optional stable key for this client instance."),
+		"worktree":       withDescription(nullableBoundedStringSchema(domain.MaxSessionWorktreeRunes), "Optional absolute path of the checked-out worktree this session is running in."),
 	}, "client_name")
 }
 
@@ -274,6 +279,7 @@ func schemaCreateIssue() *jsonschema.Schema {
 	return withAgentSessionHandle(object(map[string]*jsonschema.Schema{
 		"type": stringSchema(), "title": stringSchema(), "description": nullableStringSchema(),
 		"acceptance_criteria": nullableStringSchema(), "status": stringSchema(), "priority": stringSchema(),
+		"ready_rank":      withDescription(nullableBoundedIntegerSchema(0, int(domain.MaxReadyRank)), "Optional explicit position in the READY queue; lower sorts earlier. Only affects listing order while the issue is ready."),
 		"parent_issue_id": nullableIssueIdentifierSchema(), "blocked_reason": nullableStringSchema(),
 		"labels": stringsSchema(), "create_missing_labels": booleanSchema(),
 		"idempotency_key": nullableBoundedStringSchema(128), "view": enumSchema("compact", "full"),
@@ -284,6 +290,7 @@ func schemaUpdateIssue() *jsonschema.Schema {
 	changes := object(map[string]*jsonschema.Schema{
 		"title": stringSchema(), "description": nullableStringSchema(), "acceptance_criteria": nullableStringSchema(),
 		"type": stringSchema(), "priority": stringSchema(), "status": stringSchema(),
+		"ready_rank":      withDescription(nullableBoundedIntegerSchema(0, int(domain.MaxReadyRank)), "Replacement READY-queue position; null clears it. Absent preserves the stored position."),
 		"parent_issue_id": nullableStringSchema(), "blocked_reason": nullableStringSchema(),
 		"labels": stringsSchema(),
 	})
@@ -698,6 +705,7 @@ func schemaGetIssueOutput() *jsonschema.Schema {
 		"updated_at":          stringSchema(),
 		"status":              stringSchema(),
 		"priority":            stringSchema(),
+		"ready_rank":          nullableBoundedIntegerSchema(0, int(domain.MaxReadyRank)),
 		"parent_issue_id":     nullableStringSchema(),
 		"blocked_reason":      nullableStringSchema(),
 		"created_at":          stringSchema(),
@@ -783,6 +791,9 @@ func schemaIssueListItem() *jsonschema.Schema {
 		"labels":                   &jsonschema.Schema{Type: "array", Items: typedSchema[labelDTO]()},
 		"version":                  integerSchema(),
 		"updated_at":               stringSchema(),
+		// Always present in both views: the issue's optional explicit READY
+		// queue position, or null when it has none.
+		"ready_rank": nullableBoundedIntegerSchema(0, int(domain.MaxReadyRank)),
 		// Present only when view: "full" is requested.
 		"description":         nullableStringSchema(),
 		"acceptance_criteria": nullableStringSchema(),

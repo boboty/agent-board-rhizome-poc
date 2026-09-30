@@ -92,6 +92,7 @@ Examples:
 Issues:
 
 ```text
+ready_rank ASC (explicit READY-queue positions only)
 priority DESC
 is_claimable DESC
 sequence_no ASC

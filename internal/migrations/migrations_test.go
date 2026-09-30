@@ -28,8 +28,8 @@ func TestMigrateEmptyDatabaseCreatesCompleteSchema(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Migrate() error = %v", err)
 	}
-	if result != (Result{Version: CurrentVersion(), Applied: 15}) {
-		t.Fatalf("Migrate() result = %+v, want current version with fifteen applied migrations", result)
+	if result != (Result{Version: CurrentVersion(), Applied: 16}) {
+		t.Fatalf("Migrate() result = %+v, want current version with sixteen applied migrations", result)
 	}
 
 	inspect := openInspectionDB(t, path)
@@ -100,10 +100,10 @@ func TestMigrateEmptyDatabaseCreatesCompleteSchema(t *testing.T) {
 		FROM schema_migrations ORDER BY version DESC LIMIT 1`).Scan(&version, &name, &checksum, &appliedAt); err != nil {
 		t.Fatal(err)
 	}
-	if version != CurrentVersion() || name != "project_origin" || checksum != projectOriginChecksum {
+	if version != CurrentVersion() || name != "agent_board_runtime_metadata" || checksum != agentBoardRuntimeMetadataChecksum {
 		t.Fatalf("history = (%d, %q, %q), want current embedded migration", version, name, checksum)
 	}
-	actualChecksum := sha256.Sum256([]byte(projectOriginSQL))
+	actualChecksum := sha256.Sum256([]byte(agentBoardRuntimeMetadataSQL))
 	if checksum != hex.EncodeToString(actualChecksum[:]) {
 		t.Fatalf("stored checksum = %s, want SHA-256 of embedded bytes", checksum)
 	}
@@ -125,7 +125,7 @@ func TestMigrateIsIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if first.Applied != 15 || second != (Result{Version: CurrentVersion(), Applied: 0}) {
+	if first.Applied != 16 || second != (Result{Version: CurrentVersion(), Applied: 0}) {
 		t.Fatalf("results = %+v then %+v", first, second)
 	}
 	inspect := openInspectionDB(t, path)
@@ -188,8 +188,8 @@ func TestMigrateUpgradesExistingRowsIntoSearchIndex(t *testing.T) {
 	if err != nil {
 		t.Fatalf("upgrade migration: %v", err)
 	}
-	if result != (Result{Version: CurrentVersion(), Applied: 14}) {
-		t.Fatalf("upgrade result = %+v, want fourteen applied migrations", result)
+	if result != (Result{Version: CurrentVersion(), Applied: 15}) {
+		t.Fatalf("upgrade result = %+v, want fifteen applied migrations", result)
 	}
 
 	var count int
@@ -266,8 +266,8 @@ func TestMigrateReviewContextUpgradePreservesHistory(t *testing.T) {
 	if err != nil {
 		t.Fatalf("upgrade to review_context: %v", err)
 	}
-	if result != (Result{Version: CurrentVersion(), Applied: 12}) {
-		t.Fatalf("upgrade result = %+v, want twelve applied migrations", result)
+	if result != (Result{Version: CurrentVersion(), Applied: 13}) {
+		t.Fatalf("upgrade result = %+v, want thirteen applied migrations", result)
 	}
 
 	var after []struct {
@@ -296,16 +296,16 @@ func TestMigrateReviewContextUpgradePreservesHistory(t *testing.T) {
 	if err := rows.Close(); err != nil {
 		t.Fatalf("close history after upgrade: %v", err)
 	}
-	if len(after) != len(before)+12 {
-		t.Fatalf("history rows = %d, want %d", len(after), len(before)+12)
+	if len(after) != len(before)+13 {
+		t.Fatalf("history rows = %d, want %d", len(after), len(before)+13)
 	}
 	for index, row := range before {
 		if after[index].version != row.version || after[index].name != row.name || after[index].checksum != row.checksum || after[index].appliedAt != row.appliedAt {
 			t.Fatalf("history row %d changed: before %+v after %+v", index, row, after[index])
 		}
 	}
-	if after[len(after)-1].version != CurrentVersion() || after[len(after)-1].name != "project_origin" || after[len(after)-1].checksum != projectOriginChecksum {
-		t.Fatalf("new history row = %+v, want project_origin migration", after[len(after)-1])
+	if after[len(after)-1].version != CurrentVersion() || after[len(after)-1].name != "agent_board_runtime_metadata" || after[len(after)-1].checksum != agentBoardRuntimeMetadataChecksum {
+		t.Fatalf("new history row = %+v, want agent_board_runtime_metadata migration", after[len(after)-1])
 	}
 	var count int
 	if err := db.Read(ctx, func(ctx context.Context, query sqlite.Queryer) error {
@@ -603,6 +603,88 @@ func TestMigrationRunsAgainstSQLiteOpenBootstrap(t *testing.T) {
 	}
 	if result.Version != CurrentVersion() {
 		t.Fatalf("schema version = %d, want %d", result.Version, CurrentVersion())
+	}
+}
+
+// TestMigrateAgentBoardRuntimeMetadataUpgradePreservesExistingRows migrates a
+// database written before Agent Board V0.1 metadata existed (schema through
+// 015) and proves the upgrade is additive: existing issues read back with a
+// NULL ready_rank, existing sessions with a NULL worktree, and both columns
+// become writable with the documented range enforced at the database level.
+func TestMigrateAgentBoardRuntimeMetadataUpgradePreservesExistingRows(t *testing.T) {
+	t.Parallel()
+	_, db := openMigrationDB(t)
+	ctx := context.Background()
+	if _, err := run(ctx, db, clock.NewFakeClock(migrationTime), embeddedCatalog[:15]); err != nil {
+		t.Fatalf("seed migrations through 015: %v", err)
+	}
+
+	issueID := testID(70)
+	sessionID := testID(71)
+	if err := db.Write(ctx, func(ctx context.Context, tx sqlite.Executor) error {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO agent_sessions(
+			id, client_name, instance_key, started_at, last_seen_at
+		) VALUES (?, 'codex', 'worker-1', ?, ?)`, sessionID, nowText(), nowText()); err != nil {
+			return err
+		}
+		_, err := tx.ExecContext(ctx, `INSERT INTO issues(
+			id, sequence_no, type, title, status, priority, version, created_at, updated_at
+		) VALUES (?, 1, 'task', 'pre-existing issue', 'ready', 'medium', 1, ?, ?)`, issueID, nowText(), nowText())
+		return err
+	}); err != nil {
+		t.Fatalf("seed pre-upgrade rows: %v", err)
+	}
+
+	result, err := Migrate(ctx, db, clock.NewFakeClock(migrationTime))
+	if err != nil {
+		t.Fatalf("upgrade migration: %v", err)
+	}
+	if result != (Result{Version: CurrentVersion(), Applied: 1}) {
+		t.Fatalf("upgrade result = %+v, want one applied migration", result)
+	}
+
+	var readyRank sql.NullInt64
+	var worktree sql.NullString
+	if err := db.Read(ctx, func(ctx context.Context, query sqlite.Queryer) error {
+		if err := query.QueryRowContext(ctx, "SELECT ready_rank FROM issues WHERE id = ?", issueID).Scan(&readyRank); err != nil {
+			return err
+		}
+		return query.QueryRowContext(ctx, "SELECT worktree FROM agent_sessions WHERE id = ?", sessionID).Scan(&worktree)
+	}); err != nil {
+		t.Fatalf("read upgraded columns: %v", err)
+	}
+	if readyRank.Valid || worktree.Valid {
+		t.Fatalf("upgraded columns = rank:%v worktree:%v, want both NULL", readyRank, worktree)
+	}
+
+	if err := db.Write(ctx, func(ctx context.Context, tx sqlite.Executor) error {
+		if _, err := tx.ExecContext(ctx, "UPDATE issues SET ready_rank = 12 WHERE id = ?", issueID); err != nil {
+			return err
+		}
+		_, err := tx.ExecContext(ctx, "UPDATE agent_sessions SET worktree = '/tmp/wt' WHERE id = ?", sessionID)
+		return err
+	}); err != nil {
+		t.Fatalf("write upgraded columns: %v", err)
+	}
+	if err := db.Write(ctx, func(ctx context.Context, tx sqlite.Executor) error {
+		_, err := tx.ExecContext(ctx, "UPDATE issues SET ready_rank = -1 WHERE id = ?", issueID)
+		return err
+	}); err == nil {
+		t.Fatal("negative ready_rank was accepted by the database check constraint")
+	}
+	// The documented maximum is inclusive, so the check must accept it; only
+	// the value above it is rejected.
+	if err := db.Write(ctx, func(ctx context.Context, tx sqlite.Executor) error {
+		_, err := tx.ExecContext(ctx, "UPDATE issues SET ready_rank = ? WHERE id = ?", domain.MaxReadyRank, issueID)
+		return err
+	}); err != nil {
+		t.Fatalf("ready_rank at the documented maximum was rejected: %v", err)
+	}
+	if err := db.Write(ctx, func(ctx context.Context, tx sqlite.Executor) error {
+		_, err := tx.ExecContext(ctx, "UPDATE issues SET ready_rank = ? WHERE id = ?", domain.MaxReadyRank+1, issueID)
+		return err
+	}); err == nil {
+		t.Fatal("ready_rank above the documented maximum was accepted by the database check constraint")
 	}
 }
 
