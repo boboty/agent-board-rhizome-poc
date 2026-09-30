@@ -22,7 +22,7 @@ func TestRenderBoardHTMLCoverage(t *testing.T) {
 			{EffectiveStatus: domain.EffectiveStatusInProgress, Count: 2},
 		},
 		ActiveAttempts: []domain.ActiveAttemptSummary{
-			{AttemptID: "attempt-work", IssueID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", IssueDisplayID: "ISSUE-100", IssueTitle: "Implement export", Kind: domain.AttemptKindWork, SessionLabel: strPtr("session-a"), StartedAt: fixedAt, LeaseExpiresAt: fixedAt.Add(15 * time.Minute)},
+			{AttemptID: "attempt-work", IssueID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", IssueDisplayID: "ISSUE-100", IssueTitle: "Implement export", Kind: domain.AttemptKindWork, SessionLabel: strPtr("session-a"), SessionInstanceKey: strPtr("worker-1"), SessionClientName: strPtr("Codex CLI"), SessionModel: strPtr("gpt-5"), SessionWorktree: strPtr("/tmp/wt/AB-2"), StartedAt: fixedAt, LeaseExpiresAt: fixedAt.Add(15 * time.Minute)},
 			{AttemptID: "attempt-review", IssueID: "01ARZ3NDEKTSV4RRFFQ69G5FAV2", IssueDisplayID: "ISSUE-101", IssueTitle: "Review export", Kind: domain.AttemptKindReview, StartedAt: fixedAt.Add(2 * time.Minute), LeaseExpiresAt: fixedAt.Add(20 * time.Minute)},
 		},
 		ActiveReservations: []domain.Reservation{
@@ -80,8 +80,11 @@ func TestRenderBoardHTMLCoverage(t *testing.T) {
 			t.Fatalf("static board rendered raw script-like reservation display value: %s", html)
 		}
 		reviewRow := tableRowFor(t, html, "attempt-review")
-		if strings.Count(reviewRow, "—") != 3 {
-			t.Fatalf("attempt-review row should show the empty placeholder for session label, reservations, and gates, got: %s", reviewRow)
+		// A session-less attempt degrades every session column plus the
+		// reservation and gate columns to the em-dash placeholder rather than
+		// rendering blanks or failing.
+		if strings.Count(reviewRow, "—") != 7 {
+			t.Fatalf("attempt-review row should show the empty placeholder for five session fields, reservations, and gates, got: %s", reviewRow)
 		}
 		if strings.Contains(reviewRow, "<li>") {
 			t.Fatalf("attempt-review has no reservations and should render no <li>: %s", reviewRow)
@@ -89,6 +92,12 @@ func TestRenderBoardHTMLCoverage(t *testing.T) {
 		workRow := tableRowFor(t, html, "attempt-work")
 		if !strings.Contains(workRow, "<li>file: src/&lt;script&gt;alert(4)&lt;/script&gt;.go</li>") {
 			t.Fatalf("attempt-work row missing its grouped reservation: %s", workRow)
+		}
+		// The claiming session's runtime metadata is visible on the row.
+		for _, want := range []string{"<td>session-a</td>", "<td>worker-1</td>", "<td>Codex CLI</td>", "<td>gpt-5</td>", "<td>/tmp/wt/AB-2</td>"} {
+			if !strings.Contains(workRow, want) {
+				t.Fatalf("attempt-work row missing session metadata %q: %s", want, workRow)
+			}
 		}
 	})
 

@@ -398,7 +398,7 @@ func semanticBoardETag(result domain.BoardResult) string {
 		payload.StatusCounts[index] = boardETagStatusCount{EffectiveStatus: string(item.EffectiveStatus), Count: item.Count}
 	}
 	for index, item := range result.ActiveAttempts {
-		payload.ActiveAttempts[index] = boardETagActiveAttempt{AttemptID: item.AttemptID, IssueID: item.IssueID, IssueDisplayID: item.IssueDisplayID, IssueTitle: item.IssueTitle, Kind: string(item.Kind), SessionID: copyOptionalString(item.SessionID), SessionLabel: copyOptionalString(item.SessionLabel), StartedAt: item.StartedAt.UTC(), LeaseExpiresAt: item.LeaseExpiresAt.UTC()}
+		payload.ActiveAttempts[index] = boardETagActiveAttempt{AttemptID: item.AttemptID, IssueID: item.IssueID, IssueDisplayID: item.IssueDisplayID, IssueTitle: item.IssueTitle, Kind: string(item.Kind), SessionID: copyOptionalString(item.SessionID), SessionLabel: copyOptionalString(item.SessionLabel), SessionInstanceKey: copyOptionalString(item.SessionInstanceKey), SessionClientName: copyOptionalString(item.SessionClientName), SessionModel: copyOptionalString(item.SessionModel), SessionWorktree: copyOptionalString(item.SessionWorktree), StartedAt: item.StartedAt.UTC(), LeaseExpiresAt: item.LeaseExpiresAt.UTC()}
 	}
 	for index, item := range result.ActiveReservations {
 		payload.ActiveReservations[index] = boardETagReservation{ID: item.ID, IssueID: item.IssueID, AttemptID: item.AttemptID, Kind: string(item.Kind), DisplayValue: item.DisplayValue, Status: string(item.Status), Version: item.Version}
@@ -471,15 +471,19 @@ type boardETagStatusCount struct {
 }
 
 type boardETagActiveAttempt struct {
-	AttemptID      string    `json:"attempt_id"`
-	IssueID        string    `json:"issue_id"`
-	IssueDisplayID string    `json:"issue_display_id"`
-	IssueTitle     string    `json:"issue_title"`
-	Kind           string    `json:"kind"`
-	SessionID      *string   `json:"session_id,omitempty"`
-	SessionLabel   *string   `json:"session_label,omitempty"`
-	StartedAt      time.Time `json:"started_at"`
-	LeaseExpiresAt time.Time `json:"lease_expires_at"`
+	AttemptID          string    `json:"attempt_id"`
+	IssueID            string    `json:"issue_id"`
+	IssueDisplayID     string    `json:"issue_display_id"`
+	IssueTitle         string    `json:"issue_title"`
+	Kind               string    `json:"kind"`
+	SessionID          *string   `json:"session_id,omitempty"`
+	SessionLabel       *string   `json:"session_label,omitempty"`
+	SessionInstanceKey *string   `json:"session_instance_key,omitempty"`
+	SessionClientName  *string   `json:"session_client_name,omitempty"`
+	SessionModel       *string   `json:"session_model,omitempty"`
+	SessionWorktree    *string   `json:"session_worktree,omitempty"`
+	StartedAt          time.Time `json:"started_at"`
+	LeaseExpiresAt     time.Time `json:"lease_expires_at"`
 }
 
 type boardETagReviewRequest struct {

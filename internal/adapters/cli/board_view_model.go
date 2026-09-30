@@ -72,17 +72,26 @@ type boardStatusCountViewModel struct {
 }
 
 type boardActiveAttemptViewModel struct {
-	AttemptID       string
-	IssueLabel      string
-	IssueHref       string
-	HasIssueLink    bool
-	IssueTitle      string
-	Kind            string
-	SessionLabel    string
-	StartedAt       string
-	LeaseExpiresAt  string
-	Reservations    []boardReservationRowViewModel
-	HasReservations bool
+	AttemptID    string
+	IssueLabel   string
+	IssueHref    string
+	HasIssueLink bool
+	IssueTitle   string
+	Kind         string
+	// SessionLabel, SessionInstanceKey, SessionClientName, SessionModel, and
+	// SessionWorktree are the claiming session's attribution metadata for the
+	// board's "who is running this" display. Each renders as an em dash when
+	// the attempt was claimed without a session handle or the session did not
+	// report that field.
+	SessionLabel       string
+	SessionInstanceKey string
+	SessionClientName  string
+	SessionModel       string
+	SessionWorktree    string
+	StartedAt          string
+	LeaseExpiresAt     string
+	Reservations       []boardReservationRowViewModel
+	HasReservations    bool
 	// GateProgress is the attempt's workflow-gate progress as text ("2/3
 	// satisfied", or "none apply" when no requirements match), with unmet
 	// requirement keys listed beneath it (ISSUE-175 AC2). Text, not a
@@ -251,18 +260,22 @@ func newBoardStaticPageViewModel(result domain.BoardResult) boardStaticPageViewM
 		reservations := reservationsByAttempt[attempt.AttemptID]
 		gates, hasGates := gatesByAttempt[attempt.AttemptID]
 		vm.ActiveAttempts = append(vm.ActiveAttempts, boardActiveAttemptViewModel{
-			AttemptID:       attempt.AttemptID,
-			IssueLabel:      issueDisplayLabel(attempt.IssueID, attempt.IssueDisplayID, mapping),
-			IssueTitle:      attempt.IssueTitle,
-			Kind:            string(attempt.Kind),
-			SessionLabel:    sessionLabel(attempt.SessionLabel),
-			StartedAt:       attempt.StartedAt.Format(time.RFC3339),
-			LeaseExpiresAt:  attempt.LeaseExpiresAt.Format(time.RFC3339),
-			Reservations:    reservations,
-			HasReservations: len(reservations) > 0,
-			GateProgress:    boardGateProgressText(gates, hasGates),
-			GateUnmet:       boardGateUnmetLines(gates),
-			HasGateUnmet:    len(gates.Unmet) > 0,
+			AttemptID:          attempt.AttemptID,
+			IssueLabel:         issueDisplayLabel(attempt.IssueID, attempt.IssueDisplayID, mapping),
+			IssueTitle:         attempt.IssueTitle,
+			Kind:               string(attempt.Kind),
+			SessionLabel:       sessionFieldValue(attempt.SessionLabel),
+			SessionInstanceKey: sessionFieldValue(attempt.SessionInstanceKey),
+			SessionClientName:  sessionFieldValue(attempt.SessionClientName),
+			SessionModel:       sessionFieldValue(attempt.SessionModel),
+			SessionWorktree:    sessionFieldValue(attempt.SessionWorktree),
+			StartedAt:          attempt.StartedAt.Format(time.RFC3339),
+			LeaseExpiresAt:     attempt.LeaseExpiresAt.Format(time.RFC3339),
+			Reservations:       reservations,
+			HasReservations:    len(reservations) > 0,
+			GateProgress:       boardGateProgressText(gates, hasGates),
+			GateUnmet:          boardGateUnmetLines(gates),
+			HasGateUnmet:       len(gates.Unmet) > 0,
 		})
 	}
 	for _, issue := range result.BlockedIssues {
@@ -322,20 +335,24 @@ func newBoardServedPageViewModel(result domain.BoardResult, state servedBoardSea
 		reservations := reservationsByAttempt[attempt.AttemptID]
 		gates, hasGates := gatesByAttempt[attempt.AttemptID]
 		vm.ActiveAttempts = append(vm.ActiveAttempts, boardActiveAttemptViewModel{
-			AttemptID:       attempt.AttemptID,
-			IssueLabel:      issueDisplayLabel(attempt.IssueID, attempt.IssueDisplayID, mapping),
-			IssueHref:       boardIssuePath(attempt.IssueID, issueDisplayLabel(attempt.IssueID, attempt.IssueDisplayID, mapping)),
-			HasIssueLink:    true,
-			IssueTitle:      attempt.IssueTitle,
-			Kind:            string(attempt.Kind),
-			SessionLabel:    sessionLabel(attempt.SessionLabel),
-			StartedAt:       attempt.StartedAt.Format(time.RFC3339),
-			LeaseExpiresAt:  attempt.LeaseExpiresAt.Format(time.RFC3339),
-			Reservations:    reservations,
-			HasReservations: len(reservations) > 0,
-			GateProgress:    boardGateProgressText(gates, hasGates),
-			GateUnmet:       boardGateUnmetLines(gates),
-			HasGateUnmet:    len(gates.Unmet) > 0,
+			AttemptID:          attempt.AttemptID,
+			IssueLabel:         issueDisplayLabel(attempt.IssueID, attempt.IssueDisplayID, mapping),
+			IssueHref:          boardIssuePath(attempt.IssueID, issueDisplayLabel(attempt.IssueID, attempt.IssueDisplayID, mapping)),
+			HasIssueLink:       true,
+			IssueTitle:         attempt.IssueTitle,
+			Kind:               string(attempt.Kind),
+			SessionLabel:       sessionFieldValue(attempt.SessionLabel),
+			SessionInstanceKey: sessionFieldValue(attempt.SessionInstanceKey),
+			SessionClientName:  sessionFieldValue(attempt.SessionClientName),
+			SessionModel:       sessionFieldValue(attempt.SessionModel),
+			SessionWorktree:    sessionFieldValue(attempt.SessionWorktree),
+			StartedAt:          attempt.StartedAt.Format(time.RFC3339),
+			LeaseExpiresAt:     attempt.LeaseExpiresAt.Format(time.RFC3339),
+			Reservations:       reservations,
+			HasReservations:    len(reservations) > 0,
+			GateProgress:       boardGateProgressText(gates, hasGates),
+			GateUnmet:          boardGateUnmetLines(gates),
+			HasGateUnmet:       len(gates.Unmet) > 0,
 		})
 	}
 	for _, issue := range result.BlockedIssues {
@@ -596,7 +613,10 @@ func blockedReasonValue(reason *string) string {
 	return *reason
 }
 
-func sessionLabel(value *string) string {
+// sessionFieldValue renders one optional session attribution field for the
+// board. A missing, absent session, or blank value degrades to an em dash so
+// the row stays readable instead of rendering an empty cell or failing.
+func sessionFieldValue(value *string) string {
 	if value == nil {
 		return "—"
 	}

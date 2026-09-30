@@ -12,12 +12,51 @@ The board is not a hosted service, does not support authentication, multi-user a
 
 The status board data is surfaced through four independent rendering paths, each with its own compatibility guarantee:
 
-- **CLI table** (`rhizome-mcp board`): ASCII table with status counts, active leases, blocked issues, and the review queue. Format is human-friendly and intentionally compact. Future CLI improvements do not break existing consumption of this output.
+- **CLI table** (`rhizome-mcp board`): ASCII table with status counts, active leases, blocked issues, and the review queue. Format is human-friendly and intentionally compact. Existing column names are stable, but columns may be added, so consumers should key off the header row rather than field positions — see §2.1 for the executor columns added to the active-attempts table.
 - **CLI JSON** (`rhizome-mcp board --format json`): Complete board data as structured JSON. The JSON schema is authoritative; table rendering applies domain-specific summarization and does not carry the full scope of the JSON shape. Future schema evolution is additive; clients must tolerate unknown fields.
 - **Static HTML snapshot** (`rhizome-mcp board --output PATH`): A self-contained, embeddable HTML file with inline CSS and all data needed for rendering. The snapshot is a discrete artifact; snapshots from different times are independent and do not communicate with any server. The snapshot is suitable for archival, diff, sharing, or embedding in CI reports.
 - **Served board** (`rhizome-mcp board --serve`): An independent HTTP process listening at a loopback endpoint, with JSON API routes and an interactive HTML page. The served process lives outside any MCP session or command context and terminates on interrupt.
 
 Each surface independently renders the same board result. None carry backwards compatibility burden for the others; a change to the table format is independent of the JSON schema, which is independent of the HTML rendering.
+
+### 2.1. Active-attempt executor metadata
+
+Every surface renders the same runtime information for one active attempt, so a
+consumer can answer "who or what is running this, and where" without a second
+read:
+
+| Field | JSON key | CLI table column | HTML column |
+| --- | --- | --- | --- |
+| Agent label | `session_label` | `session_label` | Session label |
+| Stable execution instance | `session_instance_key` | `session_instance_key` | Instance key |
+| Harness / client | `session_client_name` | `session_client_name` | Client |
+| Model | `session_model` | `session_model` | Model |
+| Worktree | `session_worktree` | `session_worktree` | Worktree |
+| Lease expiry | `lease_expires_at` | `lease_expires_at` | Lease expires |
+| Session record | `session_id` | (not rendered) | (not rendered) |
+
+The values come from a read-time join between the leased `work_attempts` row
+and its `agent_sessions` row (`docs/02` §4), the same session metadata
+`create_agent_session` records. `session_instance_key` is the advisory stable
+execution-instance key described in `docs/02` §4.1, not an enforced identity.
+
+Degradation is part of the contract: an attempt claimed without an
+`agent_session_handle`, or a session that reported only part of its metadata,
+stays on the board with the missing fields absent rather than erroring or
+hiding the attempt. The JSON projection omits an absent field; the CLI table
+leaves the cell empty; both HTML views render the em-dash placeholder. An
+attempt is only listed while its lease is unexpired and its status is `active`,
+so a finished or expired attempt is never shown as the current executor.
+
+The CLI table is a human-facing TSV with a header row rather than a stable
+column contract: adding the executor columns moved `lease_expires_at` from the
+fifth field to the ninth. Positional consumers of `rhizome-mcp board` output
+should switch to the JSON surface (`--format json`), whose schema is the
+authoritative one and evolves additively.
+
+Because these fields are part of the response content, they participate in the
+`/api/board` semantic ETag (§4): a change to an executor's instance key, model,
+or worktree changes the ETag and therefore reaches a polling board.
 
 ## 3. Routes and response shapes
 

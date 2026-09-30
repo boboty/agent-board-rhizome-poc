@@ -134,11 +134,19 @@ func TestWriteTableWriters(t *testing.T) {
 		generatedAt := time.Date(2026, 8, 7, 12, 34, 56, 0, time.UTC)
 		leaseExpiresAt := generatedAt.Add(15 * time.Minute)
 		label := "agent\talpha\nline"
+		instanceKey := "worker\tone"
+		clientName := "codex"
+		model := "gpt-5"
+		worktree := "/tmp/wt/a\nb"
 		blockedReason := "needs\tclarity\nnow"
 		result := domain.BoardResult{
-			GeneratedAt:        generatedAt,
-			StatusCounts:       []domain.EffectiveStatusCount{{EffectiveStatus: domain.EffectiveStatusBlocked, Count: 2}},
-			ActiveAttempts:     []domain.ActiveAttemptSummary{{AttemptID: "att-1", IssueDisplayID: "ISSUE-100", Kind: domain.AttemptKindWork, SessionLabel: &label, LeaseExpiresAt: leaseExpiresAt}},
+			GeneratedAt:  generatedAt,
+			StatusCounts: []domain.EffectiveStatusCount{{EffectiveStatus: domain.EffectiveStatusBlocked, Count: 2}},
+			ActiveAttempts: []domain.ActiveAttemptSummary{
+				{AttemptID: "att-1", IssueDisplayID: "ISSUE-100", Kind: domain.AttemptKindWork, SessionLabel: &label, SessionInstanceKey: &instanceKey, SessionClientName: &clientName, SessionModel: &model, SessionWorktree: &worktree, LeaseExpiresAt: leaseExpiresAt},
+				// A session-less claim stays on the board with empty metadata cells.
+				{AttemptID: "att-2", IssueDisplayID: "ISSUE-102", Kind: domain.AttemptKindWork, LeaseExpiresAt: leaseExpiresAt},
+			},
 			ActiveReservations: []domain.Reservation{{ID: "res-1", IssueID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", AttemptID: "att-1", Kind: domain.ResourceKindFile, DisplayValue: "a.go", Status: domain.ReservationStatusActive}},
 			BlockedIssues:      []domain.IssueProjection{{Issue: domain.Issue{DisplayID: "ISSUE-101", Title: "Blocked title", BlockedReason: &blockedReason}}},
 			ReviewRequests:     []domain.ReviewRequest{{ID: "rev-1", IssueID: "ISSUE-101", Status: "open", CreatedAt: generatedAt.Add(1 * time.Minute)}},
@@ -148,7 +156,10 @@ func TestWriteTableWriters(t *testing.T) {
 			t.Fatalf("writeBoardTable: %v", err)
 		}
 		got := stdout.String()
-		for _, want := range []string{"generated_at\t2026-08-07T12:34:56Z", "effective_status\tcount", "att-1\tISSUE-100\twork\tagent alpha line", "active_reservations", "res-1\tISSUE-100\tatt-1\tfile\ta.go", "ISSUE-101\tBlocked title\tneeds clarity now", "rev-1\tISSUE-101\topen\t2026-08-07T12:35:56Z", "nodes\t3", "entry_points\t1"} {
+		header := "attempt_id\tissue\tkind\tsession_label\tsession_instance_key\tsession_client_name\tsession_model\tsession_worktree\tlease_expires_at"
+		attributedRow := "att-1\tISSUE-100\twork\tagent alpha line\tworker one\tcodex\tgpt-5\t/tmp/wt/a b\t2026-08-07T12:49:56Z"
+		sessionlessRow := "att-2\tISSUE-102\twork\t\t\t\t\t\t2026-08-07T12:49:56Z"
+		for _, want := range []string{"generated_at\t2026-08-07T12:34:56Z", "effective_status\tcount", header, attributedRow, sessionlessRow, "active_reservations", "res-1\tISSUE-100\tatt-1\tfile\ta.go", "ISSUE-101\tBlocked title\tneeds clarity now", "rev-1\tISSUE-101\topen\t2026-08-07T12:35:56Z", "nodes\t3", "entry_points\t1"} {
 			if !strings.Contains(got, want) {
 				t.Fatalf("output %q does not contain %q", got, want)
 			}

@@ -12,16 +12,27 @@ type EffectiveStatusCount struct {
 
 // ActiveAttemptSummary is one bounded, project-wide active (leased) attempt
 // projection used for read-only status displays.
+//
+// The Session* fields are a denormalized snapshot of the claiming session's
+// attribution metadata, joined at read time for the board's "who is running
+// this" display. Every one of them is optional: an attempt claimed without an
+// explicit agent session handle, or a session that reported only part of its
+// metadata, leaves the corresponding field nil. Consumers must render a
+// fallback for a missing value rather than treating absence as an error.
 type ActiveAttemptSummary struct {
-	AttemptID      string      `json:"attempt_id"`
-	IssueID        string      `json:"issue_id"`
-	IssueDisplayID string      `json:"issue_display_id"`
-	IssueTitle     string      `json:"issue_title"`
-	Kind           AttemptKind `json:"kind"`
-	SessionID      *string     `json:"session_id,omitempty"`
-	SessionLabel   *string     `json:"session_label,omitempty"`
-	StartedAt      time.Time   `json:"started_at"`
-	LeaseExpiresAt time.Time   `json:"lease_expires_at"`
+	AttemptID          string      `json:"attempt_id"`
+	IssueID            string      `json:"issue_id"`
+	IssueDisplayID     string      `json:"issue_display_id"`
+	IssueTitle         string      `json:"issue_title"`
+	Kind               AttemptKind `json:"kind"`
+	SessionID          *string     `json:"session_id,omitempty"`
+	SessionLabel       *string     `json:"session_label,omitempty"`
+	SessionInstanceKey *string     `json:"session_instance_key,omitempty"`
+	SessionClientName  *string     `json:"session_client_name,omitempty"`
+	SessionModel       *string     `json:"session_model,omitempty"`
+	SessionWorktree    *string     `json:"session_worktree,omitempty"`
+	StartedAt          time.Time   `json:"started_at"`
+	LeaseExpiresAt     time.Time   `json:"lease_expires_at"`
 }
 
 // ActiveAttemptList is one bounded page of active attempts. HasMore reports
