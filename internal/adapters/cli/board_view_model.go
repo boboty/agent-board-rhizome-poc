@@ -264,7 +264,7 @@ type issueDetailActivityItemViewModel struct {
 func newBoardStaticPageViewModel(result domain.BoardResult) boardStaticPageViewModel {
 	mapping := issueDisplayIDMap(result.PlanningGraph.Nodes)
 	vm := boardStaticPageViewModel{
-		Title:                       "Rhizome status board",
+		Title:                       "Agent Board",
 		GeneratedAt:                 result.GeneratedAt.Format(time.RFC3339),
 		Style:                       template.CSS(boardHTMLStyle),
 		StatusCounts:                make([]boardStatusCountViewModel, 0, len(result.StatusCounts)),
@@ -332,7 +332,7 @@ func newBoardServedPageViewModel(result domain.BoardResult, state boardPageState
 	bannerMessage, bannerIsError := boardBannerMessage(state.Notice, state.ErrorCode)
 	mapping := issueDisplayIDMap(result.PlanningGraph.Nodes)
 	vm := boardServedPageViewModel{
-		Title:                       "Rhizome status board",
+		Title:                       "Agent Board",
 		GeneratedAt:                 result.GeneratedAt.Format(time.RFC3339),
 		Style:                       template.CSS(boardHTMLStyle),
 		LiveRefreshScript:           template.JS(boardLiveRefreshScript),
@@ -457,7 +457,7 @@ func newIssueDetailPageViewModel(detail domain.IssueDetail, csrfToken string, no
 		EditStatus:         string(detail.Issue.Status),
 		EditVersion:        detail.Issue.Version,
 		CanMoveToReady:     csrfToken != "" && detail.Issue.Status == domain.StatusOpen,
-		Title:              "Rhizome issue detail",
+		Title:              "Agent Board — " + identifier,
 		Identifier:         identifier,
 		BoardEndpoint:      "/api/issues/" + identifier,
 		BoardRoute:         "/issues/" + identifier,

@@ -1,83 +1,95 @@
 {{define "boardWorkflowSection"}}
-<section class="workflow" aria-labelledby="workflow-heading">
-<h2 id="workflow-heading">Workflow board</h2>
-<p class="generated">Four task-level states — READY, IN PROGRESS, DONE, BLOCKED — projected from live project state, one card per issue. Development, verification, and changes-requested rounds are execution detail on the card, not columns.</p>
-<div class="kanban">
+<div class="board-columns">
 {{range .Columns}}
-<div class="kanban-column" data-column="{{.Column}}">
-<h3 class="kanban-column-heading">{{.Title}} <span class="kanban-count">{{.Count}}</span></h3>
-{{if .IsEmpty}}<p class="empty">No cards.</p>{{else}}
-<ul class="kanban-cards">
+<div class="board-col" data-column="{{.Column}}">
+<h3 class="board-col-heading">{{.Title}} <span class="board-col-count">{{.Count}}</span></h3>
+{{if .IsEmpty}}<div class="board-empty">No cards.</div>{{else}}
+<div class="board-col-cards">
 {{range .Cards}}
-<li class="kanban-card" data-issue="{{.IssueLabel}}">
-<div class="kanban-card-head"><strong>{{if .HasIssueLink}}<a href="{{.IssueHref}}">{{.IssueLabel}}</a>{{else}}{{.IssueLabel}}{{end}}</strong><span class="kanban-priority">{{.Priority}}</span></div>
-<div class="kanban-card-title">{{.Title}}</div>
-{{if .HasReadyRank}}<div class="kanban-field"><span class="kanban-key">READY rank</span> {{.ReadyRank}}</div>{{end}}
-{{if .HasBlockedReason}}<div class="kanban-field"><span class="kanban-key">Blocked reason</span> {{.BlockedReason}}</div>{{end}}
-{{if .HasAttempt}}<div class="kanban-field"><span class="kanban-key">{{.ExecutorRole}}</span> {{.ExecutorLabel}}</div>
-<div class="kanban-field"><span class="kanban-key">Instance</span> {{.ExecutorInstanceKey}}</div>
-<div class="kanban-field"><span class="kanban-key">Harness</span> {{.ExecutorClient}}</div>
-<div class="kanban-field"><span class="kanban-key">Model</span> {{.ExecutorModel}}</div>
-<div class="kanban-field"><span class="kanban-key">Worktree</span> {{.ExecutorWorktree}}</div>
-{{if .HasLeaseExpiry}}<div class="kanban-field"><span class="kanban-key">Lease expires</span> {{.LeaseExpiresAt}}</div>{{end}}
+<div class="board-card{{if .HasBlockedReason}} board-card-blocked{{end}}" data-issue="{{.IssueLabel}}">
+  <div class="board-card-head">
+    {{if .HasIssueLink}}<a class="board-card-id" href="{{.IssueHref}}">{{.IssueLabel}}</a>{{else}}<span class="board-card-id">{{.IssueLabel}}</span>{{end}}
+    <span class="board-card-priority{{if eq .Priority "high"}} board-card-priority-high{{end}}{{if eq .Priority "urgent"}} board-card-priority-urgent{{end}}">{{.Priority}}</span>
+  </div>
+  <div class="board-card-title">{{.Title}}</div>
+
+  {{if .HasBlockedReason}}
+  <div class="board-card-blocked-reason">{{.BlockedReason}}</div>
+  {{end}}
+
+  {{if .HasReadyRank}}
+  <div class="board-card-meta">READY rank {{.ReadyRank}}</div>
+  {{end}}
+
+  {{if .HasAttempt}}
+  <div class="board-card-meta">
+    {{.ExecutorRole}} · {{.ExecutorLabel}} · {{.ExecutorModel}}<br>
+    {{.ExecutorClient}} · {{.ExecutorInstanceKey}} · {{.ExecutorWorktree}}
+    {{if .HasLeaseExpiry}}<br>lease {{.LeaseExpiresAt}}{{end}}
+  </div>
+  {{end}}
+
+  {{if .HasReview}}
+  <div class="board-card-meta">
+    Review: <span class="board-card-review-{{if eq .ReviewStatus "approved"}}approved{{else}}open{{end}}">{{.ReviewStatus}}</span>
+    {{if .HasChangesRequested}} · {{.ChangesRequestedCount}} change(s) requested{{end}}
+  </div>
+  {{end}}
+
+  {{if .HasDelivery}}
+  <ul class="board-delivery">
+  {{range .Delivery}}<li>{{.Type}} <code>{{.URI}}</code>{{if .Title}} {{.Title}}{{end}}</li>
+  {{end}}
+  </ul>
+  {{end}}
+
+  {{if .CanReorder}}
+  <div class="board-card-actions">
+    <form method="post" action="/api/issues/{{.IssueLabel}}/rank" data-board-write-form>
+      <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+      <input type="hidden" name="expected_version" value="{{.Version}}">
+      <input type="hidden" name="direction" value="up">
+      <button class="btn btn-sm" type="submit" aria-label="Move {{.IssueLabel}} earlier in READY">Move up</button>
+    </form>
+    <form method="post" action="/api/issues/{{.IssueLabel}}/rank" data-board-write-form>
+      <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
+      <input type="hidden" name="expected_version" value="{{.Version}}">
+      <input type="hidden" name="direction" value="down">
+      <button class="btn btn-sm" type="submit" aria-label="Move {{.IssueLabel}} later in READY">Move down</button>
+    </form>
+  </div>
+  {{end}}
+</div>
 {{end}}
-{{if .HasReview}}<div class="kanban-field"><span class="kanban-key">Review</span> {{.ReviewStatus}}</div>
-<div class="kanban-field"><span class="kanban-key">Request</span> {{.ReviewRequestID}}</div>
-<div class="kanban-field"><span class="kanban-key">Target version</span> {{.ReviewTargetVersion}}</div>
-<div class="kanban-field"><span class="kanban-key">Requested</span> {{.ReviewRequestedAt}}</div>
-{{if .HasReviewResolved}}<div class="kanban-field"><span class="kanban-key">Resolved</span> {{.ReviewResolvedAt}}</div>{{end}}
-{{if .HasChangesRequested}}<div class="kanban-field"><span class="kanban-key">Changes requested</span> {{.ChangesRequestedCount}} round(s)</div>{{end}}
-{{end}}
-{{if .HasDelivery}}<div class="kanban-field"><span class="kanban-key">Delivery</span></div>
-<ul class="kanban-delivery">
-{{range .Delivery}}<li>{{.Type}} <code>{{.URI}}</code>{{if .Title}} <span class="kanban-delivery-title">{{.Title}}</span>{{end}}</li>
-{{end}}
-</ul>
-{{end}}
-{{if .CanReorder}}<div class="kanban-actions">
-<form method="post" action="/api/issues/{{.IssueLabel}}/rank" data-board-write-form>
-<input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
-<input type="hidden" name="expected_version" value="{{.Version}}">
-<input type="hidden" name="direction" value="up">
-<button type="submit" aria-label="Move {{.IssueLabel}} earlier in READY">Move up</button>
-</form>
-<form method="post" action="/api/issues/{{.IssueLabel}}/rank" data-board-write-form>
-<input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
-<input type="hidden" name="expected_version" value="{{.Version}}">
-<input type="hidden" name="direction" value="down">
-<button type="submit" aria-label="Move {{.IssueLabel}} later in READY">Move down</button>
-</form>
-</div>{{end}}
-</li>
-{{end}}
-</ul>
+</div>
 {{end}}
 </div>
 {{end}}
 </div>
-{{if .ReadyTruncated}}<p class="empty">READY cards are cut at the collection limit; more may exist.</p>{{end}}
-{{if .StoredReviewTruncated}}<p class="empty">IN PROGRESS cards read from stored review are cut at the collection limit; more may exist.</p>{{end}}
-{{if .BlockedTruncated}}<p class="empty">BLOCKED cards are cut at the collection limit; more may exist.</p>{{end}}
-{{if .DoneTruncated}}<p class="empty">DONE cards are cut at the collection limit; more may exist.</p>{{end}}
-{{if .ReviewTruncated}}<p class="empty">Review signals are cut at the collection limit; a card's review state may be older than the newest request.</p>{{end}}
-{{if .DeliveryTruncated}}<p class="empty">Some cards have more delivery references than the card shows; open the issue for the full list.</p>{{end}}
-{{if .DeliveryUnavailable}}<p class="empty">Some cards' delivery references could not be read; the cards are shown without them.</p>{{end}}
+
+{{if .ReadyTruncated}}<p class="board-truncated">READY cards are cut at the collection limit; more may exist.</p>{{end}}
+{{if .StoredReviewTruncated}}<p class="board-truncated">IN PROGRESS cards read from stored review are cut at the collection limit; more may exist.</p>{{end}}
+{{if .BlockedTruncated}}<p class="board-truncated">BLOCKED cards are cut at the collection limit; more may exist.</p>{{end}}
+{{if .DoneTruncated}}<p class="board-truncated">DONE cards are cut at the collection limit; more may exist.</p>{{end}}
+{{if .ReviewTruncated}}<p class="board-truncated">Review signals are cut at the collection limit; a card's review state may be older than the newest request.</p>{{end}}
+{{if .DeliveryTruncated}}<p class="board-truncated">Some cards have more delivery references than the card shows; open the issue for the full list.</p>{{end}}
+{{if .DeliveryUnavailable}}<p class="board-truncated">Some cards' delivery references could not be read; the cards are shown without them.</p>{{end}}
+
 {{if .HasUnprojected}}
-<details class="kanban-unprojected">
+<details class="board-unprojected">
 <summary>Not on the workflow board ({{len .Unprojected}})</summary>
-<p class="generated">These issues are real project state but no V0.1 workflow column describes them, so the board reports them instead of guessing a column.</p>
+<p class="board-generated">These issues are real project state but no workflow column describes them, so the board reports them instead of guessing a column.</p>
 <div class="table-scroll"><table>
 <thead><tr><th>Issue</th><th>Title</th><th>Stored status</th><th>Reason</th><th>Detail</th><th>Action</th></tr></thead>
 <tbody>
 {{range .Unprojected}}<tr><td>{{if .HasIssueLink}}<a href="{{.IssueHref}}">{{.IssueLabel}}</a>{{else}}{{.IssueLabel}}{{end}}</td><td>{{.Title}}</td><td>{{.StoredStatus}}</td><td>{{.Reason}}</td><td>{{.Detail}}</td><td>{{if .CanMoveToReady}}<form method="post" action="/api/issues/{{.IssueLabel}}/ready" data-board-write-form>
 <input type="hidden" name="csrf_token" value="{{$.CSRFToken}}">
 <input type="hidden" name="expected_version" value="{{.Version}}">
-<button type="submit" aria-label="Queue {{.IssueLabel}} into READY">Move to READY</button>
+<button class="btn btn-sm" type="submit" aria-label="Queue {{.IssueLabel}} into READY">Move to READY</button>
 </form>{{else}}—{{end}}</td></tr>
 {{end}}</tbody>
 </table></div>
-{{if .UnprojectedTruncated}}<p class="empty">Showing the first 100 not-projected issues; more exist.</p>{{end}}
+{{if .UnprojectedTruncated}}<p class="board-truncated">Showing the first 100 not-projected issues; more exist.</p>{{end}}
 </details>
 {{end}}
-</section>
 {{end}}

@@ -7,54 +7,77 @@
 <style>{{.Style}}</style>
 </head>
 <body>
-<main data-board-main data-board-endpoint="{{.BoardEndpoint}}" data-board-route="{{.BoardRoute}}">
-<p><a href="{{.ReturnHref}}">Return to board</a></p>
-<h1>{{.IssueHeading}}</h1>
-<p class="generated">{{.StatusLine}}</p>
-{{if .HasBanner}}<p class="board-banner{{if .BannerIsError}} board-banner-error{{end}}" role="status">{{.BannerMessage}}</p>{{end}}
-{{if .WritesEnabled}}<section class="board-write">
-<h2>Edit task</h2>
-<form method="post" action="/api/issues/{{.Identifier}}" data-board-write-form>
-<input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
-<input type="hidden" name="expected_version" value="{{.EditVersion}}">
-<input type="hidden" name="return" value="/issues/{{.Identifier}}">
-<label>Title <input type="text" name="title" value="{{.EditTitle}}" maxlength="300" required></label>
-<label>Description <textarea name="description" rows="4">{{.EditDescription}}</textarea></label>
-<label>Acceptance criteria <textarea name="acceptance_criteria" rows="4">{{.EditAcceptanceCriteria}}</textarea></label>
-<label>Priority <select name="priority">{{range .Priorities}}<option value="{{.}}"{{if eq . $.EditPriority}} selected{{end}}>{{.}}</option>{{end}}</select></label>
-<button type="submit">Save changes</button>
+
+<header class="board-header">
+  <div class="board-header-left">
+    <h1 style="font-size:1rem"><a href="{{.ReturnHref}}" style="color:var(--ink);text-decoration:none;">&larr; Agent Board</a></h1>
+  </div>
+</header>
+
+<main data-board-main data-board-endpoint="{{.BoardEndpoint}}" data-board-route="{{.BoardRoute}}" class="board-main">
+
+<p><a class="btn btn-sm" href="{{.ReturnHref}}">Return to board</a></p>
+
+<h1 style="font-size:1.2rem;color:var(--ink);margin:8px 0;">{{.IssueHeading}}</h1>
+<p class="board-generated">{{.StatusLine}}</p>
+
+{{if .HasBanner}}<div class="board-banner{{if .BannerIsError}} board-banner-error{{end}}" role="status">{{.BannerMessage}}</div>{{end}}
+
+{{if .WritesEnabled}}
+<div style="background:var(--bg);border:1px solid var(--border-light);border-radius:var(--radius);padding:12px 16px;margin-bottom:16px;">
+<h2 style="font-size:0.9rem;font-weight:700;color:var(--ink);margin:0 0 10px;">Edit task</h2>
+<form class="board-form" method="post" action="/api/issues/{{.Identifier}}" data-board-write-form>
+  <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+  <input type="hidden" name="expected_version" value="{{.EditVersion}}">
+  <input type="hidden" name="return" value="/issues/{{.Identifier}}">
+  <label>Title <input type="text" name="title" value="{{.EditTitle}}" maxlength="300" required></label>
+  <label>Description <textarea name="description" rows="4">{{.EditDescription}}</textarea></label>
+  <label>Acceptance criteria <textarea name="acceptance_criteria" rows="4">{{.EditAcceptanceCriteria}}</textarea></label>
+  <label>Priority <select name="priority">{{range .Priorities}}<option value="{{.}}"{{if eq . $.EditPriority}} selected{{end}}>{{.}}</option>{{end}}</select></label>
+  <div class="board-form-actions">
+    <button class="btn btn-primary" type="submit">Save changes</button>
+  </div>
 </form>
-{{if .CanMoveToReady}}<form method="post" action="/api/issues/{{.Identifier}}/ready" data-board-write-form>
-<input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
-<input type="hidden" name="expected_version" value="{{.EditVersion}}">
-<input type="hidden" name="return" value="/issues/{{.Identifier}}">
-<button type="submit">Move to READY</button>
-</form>{{end}}
-</section>{{end}}
-<section>
-<h2>Metadata</h2>
+{{if .CanMoveToReady}}
+<form method="post" action="/api/issues/{{.Identifier}}/ready" data-board-write-form style="margin-top:8px;">
+  <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+  <input type="hidden" name="expected_version" value="{{.EditVersion}}">
+  <input type="hidden" name="return" value="/issues/{{.Identifier}}">
+  <button class="btn btn-accent" type="submit">Move to READY</button>
+</form>
+{{end}}
+</div>
+{{end}}
+
+<details class="board-details" open>
+<summary><strong>Metadata</strong></summary>
 {{range .Metadata}}<p><strong>{{.Label}}:</strong> {{.Value}}</p>
 {{end}}
-</section>
-<section>
-<h2>Labels</h2>
-{{if .HasLabels}}<p>{{range $index, $label := .Labels}}{{if $index}}, {{end}}{{$label}}{{end}}</p>{{else}}<p class="empty">No labels assigned.</p>{{end}}
-</section>
-<section>
-<h2>{{.Description.Heading}}</h2>
-{{if .Description.IsEmpty}}<p class="empty">{{.Description.EmptyMessage}}</p>{{else}}<pre>{{.Description.Value}}</pre>{{end}}
-</section>
-<section>
-<h2>{{.AcceptanceCriteria.Heading}}</h2>
-{{if .AcceptanceCriteria.IsEmpty}}<p class="empty">{{.AcceptanceCriteria.EmptyMessage}}</p>{{else}}<pre>{{.AcceptanceCriteria.Value}}</pre>{{end}}
-</section>
-<section>
-<h2>{{.BlockedReason.Heading}}</h2>
-{{if .BlockedReason.IsEmpty}}<p class="empty">{{.BlockedReason.EmptyMessage}}</p>{{else}}<pre>{{.BlockedReason.Value}}</pre>{{end}}
-</section>
-<section>
-<h2>Workflow gates</h2>
-<p{{if .Gates.NoneApply}} class="empty"{{end}}>{{.Gates.StatusLine}}</p>
+</details>
+
+<details class="board-details"{{if .HasLabels}} open{{end}}>
+<summary><strong>Labels</strong></summary>
+{{if .HasLabels}}<p>{{range $index, $label := .Labels}}{{if $index}}, {{end}}{{$label}}{{end}}</p>{{else}}<p class="board-empty">No labels assigned.</p>{{end}}
+</details>
+
+<details class="board-details"{{if not .Description.IsEmpty}} open{{end}}>
+<summary><strong>{{.Description.Heading}}</strong></summary>
+{{if .Description.IsEmpty}}<p class="board-empty">{{.Description.EmptyMessage}}</p>{{else}}<pre>{{.Description.Value}}</pre>{{end}}
+</details>
+
+<details class="board-details"{{if not .AcceptanceCriteria.IsEmpty}} open{{end}}>
+<summary><strong>{{.AcceptanceCriteria.Heading}}</strong></summary>
+{{if .AcceptanceCriteria.IsEmpty}}<p class="board-empty">{{.AcceptanceCriteria.EmptyMessage}}</p>{{else}}<pre>{{.AcceptanceCriteria.Value}}</pre>{{end}}
+</details>
+
+<details class="board-details"{{if not .BlockedReason.IsEmpty}} open{{end}}>
+<summary><strong>{{.BlockedReason.Heading}}</strong></summary>
+{{if .BlockedReason.IsEmpty}}<p class="board-empty">{{.BlockedReason.EmptyMessage}}</p>{{else}}<pre>{{.BlockedReason.Value}}</pre>{{end}}
+</details>
+
+<details class="board-details">
+<summary><strong>Workflow gates</strong></summary>
+<p{{if .Gates.NoneApply}} class="board-empty"{{end}}>{{.Gates.StatusLine}}</p>
 {{if .Gates.HasUnmet}}
 <div class="table-scroll"><table>
 <thead><tr><th scope="col">Requirement</th><th scope="col">Reason</th><th scope="col">Next action</th></tr></thead>
@@ -63,30 +86,36 @@
 {{end}}</tbody>
 </table></div>
 {{else if .Gates.Satisfied}}<p>All gate requirements are satisfied.</p>{{end}}
-</section>
-{{if .RootIssue}}<section>
-<h2>Root issue</h2>
+</details>
+
+{{if .RootIssue}}<details class="board-details">
+<summary><strong>Root issue</strong></summary>
 <p><a href="{{.RootIssue.Href}}">{{.RootIssue.Label}}</a></p>
-</section>{{end}}
-{{if .LatestAttempt}}<section>
-<h2>Latest attempt</h2>
+</details>{{end}}
+
+{{if .LatestAttempt}}<details class="board-details">
+<summary><strong>Latest attempt</strong></summary>
 <p>{{.LatestAttempt.ID}}{{if .LatestAttempt.HasStarted}} — {{.LatestAttempt.StartedAt}}{{end}}</p>
-</section>{{end}}
-{{if .OpenReview}}<section>
-<h2>Open review</h2>
+</details>{{end}}
+
+{{if .OpenReview}}<details class="board-details">
+<summary><strong>Open review</strong></summary>
 <p>{{.OpenReview.ID}}{{if .OpenReview.HasStatus}} — {{.OpenReview.Status}}{{end}}</p>
-</section>{{end}}
-{{if .LatestDecision}}<section>
-<h2>Latest decision</h2>
+</details>{{end}}
+
+{{if .LatestDecision}}<details class="board-details">
+<summary><strong>Latest decision</strong></summary>
 <p>{{.LatestDecision.Title}}{{if .LatestDecision.HasSummary}} — {{.LatestDecision.Summary}}{{end}}</p>
-</section>{{end}}
-{{if .GraphSVG}}<section>
-<h2>Related graph</h2>
+</details>{{end}}
+
+{{if .GraphSVG}}<details class="board-details">
+<summary><strong>Related graph</strong></summary>
 {{.GraphSVG}}
-</section>{{end}}
-<section>
-<h2>Reservations</h2>
-{{if .HasMoreReservations}}<p class="empty">Additional reservations are available.</p>{{end}}
+</details>{{end}}
+
+<details class="board-details">
+<summary><strong>Reservations</strong></summary>
+{{if .HasMoreReservations}}<p class="board-truncated">Additional reservations are available.</p>{{end}}
 {{if .HasReservations}}
 <div class="table-scroll"><table>
 <thead><tr><th>Kind</th><th>Display value</th><th>Status</th><th>Created</th><th>Released</th></tr></thead>
@@ -94,21 +123,24 @@
 {{range .Reservations}}<tr><td>{{.Kind}}</td><td>{{.DisplayValue}}</td><td>{{.Status}}</td><td>{{.CreatedAt}}</td><td>{{if .HasReleased}}{{.ReleasedAt}}{{else}}—{{end}}</td></tr>
 {{end}}</tbody>
 </table></div>
-{{else}}<p class="empty">No current or historical reservations.</p>
+{{else}}<p class="board-empty">No current or historical reservations.</p>
 {{end}}
-</section>
-<section>
-<h2>Recent activity</h2>
+</details>
+
+<details class="board-details">
+<summary><strong>Recent activity</strong></summary>
 {{if .Activity.Items}}
-{{if .Activity.HasMore}}<p class="empty">Additional activity is available.</p>{{end}}
+{{if .Activity.HasMore}}<p class="board-truncated">Additional activity is available.</p>{{end}}
 <ul>
-{{range .Activity.Items}}<li>{{.Summary}}{{if .HasDate}} <span class="generated">{{.OccurredAt}}</span>{{end}}</li>
+{{range .Activity.Items}}<li>{{.Summary}}{{if .HasDate}} <span class="board-generated">{{.OccurredAt}}</span>{{end}}</li>
 {{end}}</ul>
-{{else}}<p class="empty">No activity recorded yet.</p>{{end}}
-</section>
+{{else}}<p class="board-empty">No activity recorded yet.</p>{{end}}
+</details>
+
 </main>
+
 <script>{{.LiveRefreshScript}}</script>
-<footer>Generated locally by <code>rhizome-mcp board --serve</code>.</footer>
+<footer class="board-footer">Agent Board · Issue detail</footer>
 </body>
 </html>
 {{end}}

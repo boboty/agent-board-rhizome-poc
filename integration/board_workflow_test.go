@@ -496,7 +496,7 @@ func TestIntegrationBoardWorkflowStaticAndServedHTML(t *testing.T) {
 func assertWorkflowHTML(t *testing.T, surface, html string, refs boardWorkflowIssueRefs, writable bool) {
 	t.Helper()
 	for _, want := range []string{
-		"Workflow board", "kanban-column", "READY", "IN PROGRESS", "DONE", "BLOCKED",
+		"READY", "IN PROGRESS", "DONE", "BLOCKED",
 		refs.inProgress.DisplayID, "Luna", "worker-1", "Codex CLI", "gpt-5", "/tmp/wt/AB-3",
 		refs.changesAsked.DisplayID, "changes_requested",
 		refs.done.DisplayID, "abc1234",

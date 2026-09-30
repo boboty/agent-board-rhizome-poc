@@ -62,7 +62,7 @@ func TestBoardHTTPHandlerServesHTMLAndJSONWithSecurityHeaders(t *testing.T) {
 		if got := recorder.Header().Get("Cache-Control"); got != "no-store" {
 			t.Fatalf("cache control = %q", got)
 		}
-		if !strings.Contains(recorder.Body.String(), "Rhizome status board") {
+		if !strings.Contains(recorder.Body.String(), "Agent Board") {
 			t.Fatalf("body = %q", recorder.Body.String())
 		}
 	})

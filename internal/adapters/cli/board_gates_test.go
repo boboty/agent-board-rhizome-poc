@@ -91,7 +91,7 @@ func TestIssueDetailHTMLRendersGateSection(t *testing.T) {
 		t.Fatalf("renderIssueDetailHTML() error = %v", err)
 	}
 	for _, want := range []string{
-		"<h2>Workflow gates</h2>",
+		"<strong>Workflow gates</strong>",
 		"Evaluated at complete_work_to_done against the active attempt&#39;s frozen snapshot (fingerprint fp-abcd): 1 of 2 requirements satisfied.",
 		"<th scope=\"col\">Requirement</th>",
 		"<th scope=\"col\">Reason</th>",

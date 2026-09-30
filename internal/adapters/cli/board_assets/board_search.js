@@ -347,8 +347,8 @@
   }
 
   const root = document.querySelector("main[data-board-main]");
-  if (window.__rhizomeBoardSearchTestHooks) {
-    window.__rhizomeBoardSearchTestHooks.BoardSearchClient = BoardSearchClient;
+  if (window.__agentBoardSearchTestHooks) {
+    window.__agentBoardSearchTestHooks.BoardSearchClient = BoardSearchClient;
   }
   if (root) {
     const client = new BoardSearchClient(root, {document: document, window: window, history: window.history});

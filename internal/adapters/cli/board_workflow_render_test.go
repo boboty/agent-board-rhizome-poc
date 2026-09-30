@@ -145,10 +145,10 @@ var boardWorkflowRenderers = []struct {
 // kanbanHeading is the markup that starts one rendered column heading, so a
 // test pins the heading rather than any incidental occurrence of its title.
 func kanbanHeading(title string, count int) string {
-	return `<h3 class="kanban-column-heading">` + title + ` <span class="kanban-count">` + strconv.Itoa(count) + `</span></h3>`
+	return `<h3 class="board-col-heading">` + title + ` <span class="board-col-count">` + strconv.Itoa(count) + `</span></h3>`
 }
 
-// kanbanCardFor returns the rendered <li class="kanban-card"> segment for one
+// kanbanCardFor returns the rendered card segment for one
 // issue label, so a test can assert on a single card without over-matching
 // against the rest of the page.
 func kanbanCardFor(t *testing.T, page, issueLabel string) string {
@@ -158,15 +158,15 @@ func kanbanCardFor(t *testing.T, page, issueLabel string) string {
 	if index < 0 {
 		t.Fatalf("kanban card marker %q not found in page", marker)
 	}
-	cardStart := strings.LastIndex(page[:index], `<li class="kanban-card"`)
+	cardStart := strings.LastIndex(page[:index], `<div class="board-card"`)
 	if cardStart < 0 {
-		t.Fatalf("no <li class=\"kanban-card\" before marker %q", marker)
+		t.Fatalf("no card before marker %q", marker)
 	}
 	rest := page[index:]
 	cardEnd := len(page)
-	if nextCard := strings.Index(rest, `<li class="kanban-card"`); nextCard >= 0 {
+	if nextCard := strings.Index(rest, `<div class="board-card"`); nextCard >= 0 {
 		cardEnd = index + nextCard
-	} else if listEnd := strings.Index(rest, "\n</ul>"); listEnd >= 0 {
+	} else if listEnd := strings.Index(rest, "\n</div>\n</div>"); listEnd >= 0 {
 		cardEnd = index + listEnd
 	}
 	return page[cardStart:cardEnd]
@@ -223,7 +223,7 @@ func TestBoardWorkflowKanbanRendersEveryColumnAndCard(t *testing.T) {
 					t.Fatalf("%s page is missing card title %q", renderer.name, card.Title)
 				}
 			}
-			if got := strings.Count(page, `class="kanban-card"`); got != len(result.Workflow.Cards) {
+			if got := strings.Count(page, `data-issue="`); got != len(result.Workflow.Cards) {
 				t.Fatalf("%s page kanban-card count = %d, want %d", renderer.name, got, len(result.Workflow.Cards))
 			}
 			if !strings.Contains(page, "ISSUE-900") {

@@ -232,16 +232,16 @@ function createHarness({ fetchResponses = [], initialQuery = "" } = {}) {
 function loadClient(scriptSource, harness) {
   const context = vm.createContext(harness.context);
   vm.runInContext(scriptSource, context, { filename: "board_html.go" });
-  return context.window.__rhizomeBoardSearchTestHooks?.BoardSearchClient;
+  return context.window.__agentBoardSearchTestHooks?.BoardSearchClient;
 }
 
 test("renders safe FTS markers, aborts stale responses, and updates history state", async () => {
   const harness = createHarness({ initialQuery: "alpha" });
-  harness.context.window.__rhizomeBoardSearchTestHooks = {};
+  harness.context.window.__agentBoardSearchTestHooks = {};
   const scriptSource = extractBoardSearchScript();
   const context = vm.createContext(harness.context);
   vm.runInContext(scriptSource, context, { filename: "board_html.go" });
-  const Client = context.window.__rhizomeBoardSearchTestHooks?.BoardSearchClient;
+  const Client = context.window.__agentBoardSearchTestHooks?.BoardSearchClient;
   assert.ok(Client);
 
   const root = new FakeElement("div");
@@ -295,11 +295,11 @@ test("renders safe FTS markers, aborts stale responses, and updates history stat
 
 test("handles empty, error, and paginated append states without mixing cursors", async () => {
   const harness = createHarness();
-  harness.context.window.__rhizomeBoardSearchTestHooks = {};
+  harness.context.window.__agentBoardSearchTestHooks = {};
   const scriptSource = extractBoardSearchScript();
   const context = vm.createContext(harness.context);
   vm.runInContext(scriptSource, context, { filename: "board_html.go" });
-  const Client = context.window.__rhizomeBoardSearchTestHooks?.BoardSearchClient;
+  const Client = context.window.__agentBoardSearchTestHooks?.BoardSearchClient;
   assert.ok(Client);
 
   const root = new FakeElement("div");
@@ -343,11 +343,11 @@ test("handles empty, error, and paginated append states without mixing cursors",
 
 test("default window fetch is bound to window to avoid illegal invocation", async () => {
   const harness = createHarness();
-  harness.context.window.__rhizomeBoardSearchTestHooks = {};
+  harness.context.window.__agentBoardSearchTestHooks = {};
   const scriptSource = extractBoardSearchScript();
   const context = vm.createContext(harness.context);
   vm.runInContext(scriptSource, context, { filename: "board_html.go" });
-  const Client = context.window.__rhizomeBoardSearchTestHooks?.BoardSearchClient;
+  const Client = context.window.__agentBoardSearchTestHooks?.BoardSearchClient;
   assert.ok(Client);
 
   const root = new FakeElement("div");

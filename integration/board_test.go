@@ -317,7 +317,7 @@ func TestIntegrationBoardServe(t *testing.T) {
 	if got := response.Header.Get("Cache-Control"); got != "no-store" {
 		t.Fatalf("board page cache control = %q", got)
 	}
-	if !strings.Contains(string(body), "Rhizome status board") {
+	if !strings.Contains(string(body), "Agent Board") {
 		t.Fatalf("board page body missing heading: %s", body)
 	}
 

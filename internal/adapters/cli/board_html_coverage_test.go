@@ -65,7 +65,7 @@ func TestRenderBoardHTMLCoverage(t *testing.T) {
 		if err != nil {
 			t.Fatalf("renderBoardHTML: %v", err)
 		}
-		for _, want := range []string{"Rhizome status board", "Status counts", "ISSUE-120", "Waiting on umbrella issue", "attempt-work", "file: src/&lt;script&gt;alert(4)&lt;/script&gt;.go", "1 active resource reservation,"} {
+		for _, want := range []string{"Agent Board", "Status counts", "ISSUE-120", "Waiting on umbrella issue", "attempt-work", "file: src/&lt;script&gt;alert(4)&lt;/script&gt;.go", "1 active resource reservation,"} {
 			if !strings.Contains(html, want) {
 				t.Fatalf("static board missing %q:\n%s", want, html)
 			}
@@ -252,7 +252,7 @@ func TestRenderIssueDetailHTMLCoverage(t *testing.T) {
 		if err != nil {
 			t.Fatalf("renderIssueDetailHTML: %v", err)
 		}
-		for _, want := range []string{"ISSUE-301", "Not archived.", "No labels assigned.", "No description provided.", "No acceptance criteria provided.", "No blocked reason provided.", "No activity recorded yet.", "No current or historical reservations.", "Rhizome issue detail"} {
+		for _, want := range []string{"ISSUE-301", "Not archived.", "No labels assigned.", "No description provided.", "No acceptance criteria provided.", "No blocked reason provided.", "No activity recorded yet.", "No current or historical reservations.", "Agent Board"} {
 			if !strings.Contains(html, want) {
 				t.Fatalf("sparse detail missing %q:\n%s", want, html)
 			}

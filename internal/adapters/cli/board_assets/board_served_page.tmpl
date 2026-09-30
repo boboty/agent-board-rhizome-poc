@@ -7,28 +7,31 @@
 <style>{{.Style}}</style>
 </head>
 <body>
-<main data-board-main data-board-endpoint="/api/board" data-board-route="/">
-<h1>{{.Title}}</h1>
-<p class="generated">Generated {{.GeneratedAt}}</p>
-{{if .HasBanner}}<p class="board-banner{{if .BannerIsError}} board-banner-error{{end}}" role="status">{{.BannerMessage}}</p>{{end}}
-{{if .WritesEnabled}}<section class="board-write">
-<h2>New task</h2>
-<form method="post" action="/api/issues" data-board-write-form>
-<input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
-<label>Title <input type="text" name="title" maxlength="300" required></label>
-<label>Description <textarea name="description" rows="3"></textarea></label>
-<label>Acceptance criteria <textarea name="acceptance_criteria" rows="3"></textarea></label>
-<label>Priority <select name="priority"><option value="" selected>default (medium)</option>{{range .Priorities}}<option value="{{.}}">{{.}}</option>{{end}}</select></label>
-<label>Status <select name="status"><option value="open" selected>open</option><option value="ready">ready</option></select></label>
-<button type="submit">Create task</button>
-</form>
-</section>{{end}}
+
+<header class="board-header">
+  <div class="board-header-left">
+    <h1>{{.Title}}</h1>
+    <p class="board-subtitle">AI Engineering Task Board</p>
+  </div>
+  <div class="board-header-right">
+    {{if .WritesEnabled}}<button class="btn btn-accent" id="board-new-task-btn" type="button">+ New Task</button>{{end}}
+  </div>
+</header>
+
+<main data-board-main data-board-endpoint="/api/board" data-board-route="/" class="board-main">
+
+{{if .HasBanner}}<div class="board-banner{{if .BannerIsError}} board-banner-error{{end}}" role="status">{{.BannerMessage}}</div>{{end}}
+
 {{template "boardWorkflowSection" .Workflow}}
-<section>
-<h2>Search</h2>
-<form data-board-search-form>
-<label for="board-search-query">Search</label>
-<input id="board-search-query" name="search" type="search" value="{{.SearchQuery}}" />
+
+<!-- Collapsible auxiliary sections -->
+<details class="board-details">
+<summary>Activity &amp; Diagnostics</summary>
+
+<section style="margin-bottom:12px;">
+<h2 style="font-size:0.85rem;font-weight:600;color:var(--ink);margin:0 0 6px;">Search</h2>
+<form data-board-search-form class="board-search">
+<input id="board-search-query" name="search" type="search" value="{{.SearchQuery}}" placeholder="Search..." />
 <select name="entity_type">
 <option value="all">All</option>
 <option value="issue"{{if eq .SelectedEntityType "issue"}} selected{{end}}>Issue</option>
@@ -37,7 +40,7 @@
 <option value="review"{{if eq .SelectedEntityType "review"}} selected{{end}}>Review</option>
 <option value="attempt_note"{{if eq .SelectedEntityType "attempt_note"}} selected{{end}}>Attempt note</option>
 </select>
-<button type="submit">Search</button>
+<button class="btn btn-sm" type="submit">Search</button>
 </form>
 <div data-board-search-status role="status" aria-live="polite">{{.SearchStatusMessage}}</div>
 <div data-board-search-results>
@@ -47,13 +50,14 @@
 <li><strong>{{.Title}}</strong><div>{{.EntityType}} • {{.EntityID}}</div><div>{{if .HasIssueLink}}<a href="{{.IssueHref}}">{{.IssueLabel}}</a>{{else}}<span class="empty">No owning issue</span>{{end}}</div><div>{{.Snippet}}</div></li>
 {{end}}
 </ul>
-{{if .SearchHasMore}}<button type="button">Load more</button>
+{{if .SearchHasMore}}<button class="btn btn-sm" type="button">Load more</button>
 {{end}}
-{{else if not .SearchIsInitial}}{{if .SearchInvalid}}<p class="empty">Invalid search query.</p>{{else if .SearchError}}<p class="empty">Search temporarily unavailable.</p>{{else}}<p class="empty">No results found.</p>{{end}}{{else}}<p class="empty">Enter a search query to find issues, comments, decisions, reviews, and attempt notes.</p>{{end}}
+{{else if not .SearchIsInitial}}{{if .SearchInvalid}}<p class="board-empty">Invalid search query.</p>{{else if .SearchError}}<p class="board-empty">Search temporarily unavailable.</p>{{else}}<p class="board-empty">No results found.</p>{{end}}{{else}}<p class="board-empty">Enter a search query to find issues, comments, decisions, reviews, and attempt notes.</p>{{end}}
 </div>
 </section>
-<section>
-<h2>Status counts</h2>
+
+<section style="margin-bottom:12px;">
+<h2 style="font-size:0.85rem;font-weight:600;color:var(--ink);margin:0 0 6px;">Status counts</h2>
 {{if .StatusCounts}}
 <div class="table-scroll"><table>
 <thead><tr><th>Effective status</th><th>Count</th></tr></thead>
@@ -61,28 +65,30 @@
 {{range .StatusCounts}}<tr><td>{{.Status}}</td><td>{{.Count}}</td></tr>
 {{end}}</tbody>
 </table></div>
-{{else}}<p class="empty">No issues yet.</p>
+{{else}}<p class="board-empty">No issues yet.</p>
 {{end}}
 </section>
-<section>
-<h2>Active (leased) attempts</h2>
-<p class="generated">{{.ActiveReservationCount}} active resource reservation{{if ne .ActiveReservationCount 1}}s{{end}}, shown grouped under the attempt that holds each one.</p>
+
+<section style="margin-bottom:12px;">
+<h2 style="font-size:0.85rem;font-weight:600;color:var(--ink);margin:0 0 6px;">Active (leased) attempts</h2>
+<p class="board-generated">{{.ActiveReservationCount}} active resource reservation{{if ne .ActiveReservationCount 1}}s{{end}}, shown grouped under the attempt that holds each one.</p>
 {{if .ActiveAttempts}}
 <div class="table-scroll"><table>
-<thead><tr><th>Attempt</th><th>Issue</th><th>Title</th><th>Kind</th><th>Session label</th><th>Instance key</th><th>Client</th><th>Model</th><th>Worktree</th><th>Started</th><th>Lease expires</th><th>Reservations</th><th>Gates</th></tr></thead>
+<thead><tr><th>Attempt</th><th>Issue</th><th>Title</th><th>Kind</th><th>Session</th><th>Instance</th><th>Client</th><th>Model</th><th>Worktree</th><th>Started</th><th>Lease expires</th><th>Reservations</th><th>Gates</th></tr></thead>
 <tbody>
-{{range .ActiveAttempts}}<tr><td>{{.AttemptID}}</td><td>{{if .HasIssueLink}}<a href="{{.IssueHref}}">{{.IssueLabel}}</a>{{else}}{{.IssueLabel}}{{end}}</td><td>{{.IssueTitle}}</td><td>{{.Kind}}</td><td>{{.SessionLabel}}</td><td>{{.SessionInstanceKey}}</td><td>{{.SessionClientName}}</td><td>{{.SessionModel}}</td><td>{{.SessionWorktree}}</td><td>{{.StartedAt}}</td><td>{{.LeaseExpiresAt}}</td><td>{{if .HasReservations}}<ul class="reservations">{{range .Reservations}}<li>{{.Kind}}: {{.DisplayValue}}</li>
+{{range .ActiveAttempts}}<tr><td>{{.AttemptID}}</td><td>{{if .HasIssueLink}}<a href="{{.IssueHref}}">{{.IssueLabel}}</a>{{else}}{{.IssueLabel}}{{end}}</td><td>{{.IssueTitle}}</td><td>{{.Kind}}</td><td>{{.SessionLabel}}</td><td>{{.SessionInstanceKey}}</td><td>{{.SessionClientName}}</td><td>{{.SessionModel}}</td><td>{{.SessionWorktree}}</td><td>{{.StartedAt}}</td><td>{{.LeaseExpiresAt}}</td><td>{{if .HasReservations}}<ul class="board-reservations">{{range .Reservations}}<li>{{.Kind}}: {{.DisplayValue}}</li>
 {{end}}</ul>{{else}}—{{end}}</td><td>{{.GateProgress}}{{if .HasGateUnmet}}<ul class="gates">{{range .GateUnmet}}<li>{{.}}</li>
 {{end}}</ul>{{end}}</td></tr>
 {{end}}</tbody>
 </table></div>
-{{else}}<p class="empty">No active attempts.</p>
+{{else}}<p class="board-empty">No active attempts.</p>
 {{end}}
-{{if .ActiveAttemptsTruncated}}<p class="empty">Showing the first 100 active attempts; more exist.</p>{{end}}
-{{if .ActiveReservationsTruncated}}<p class="empty">Showing the first 100 resource reservations; more exist.</p>{{end}}
+{{if .ActiveAttemptsTruncated}}<p class="board-truncated">Showing the first 100 active attempts; more exist.</p>{{end}}
+{{if .ActiveReservationsTruncated}}<p class="board-truncated">Showing the first 100 resource reservations; more exist.</p>{{end}}
 </section>
-<section>
-<h2>Blocked issues</h2>
+
+<section style="margin-bottom:12px;">
+<h2 style="font-size:0.85rem;font-weight:600;color:var(--ink);margin:0 0 6px;">Blocked issues</h2>
 {{if .BlockedIssues}}
 <div class="table-scroll"><table>
 <thead><tr><th>Issue</th><th>Title</th><th>Blocked reason</th></tr></thead>
@@ -90,12 +96,13 @@
 {{range .BlockedIssues}}<tr><td>{{if .HasIssueLink}}<a href="{{.IssueHref}}">{{.Label}}</a>{{else}}{{.Label}}{{end}}</td><td>{{.Title}}</td><td>{{.BlockedReason}}</td></tr>
 {{end}}</tbody>
 </table></div>
-{{else}}<p class="empty">No blocked issues.</p>
+{{else}}<p class="board-empty">No blocked issues.</p>
 {{end}}
-{{if .BlockedIssuesTruncated}}<p class="empty">Showing the first 100 blocked issues; more exist.</p>{{end}}
+{{if .BlockedIssuesTruncated}}<p class="board-truncated">Showing the first 100 blocked issues; more exist.</p>{{end}}
 </section>
-<section>
-<h2>Open review requests</h2>
+
+<section style="margin-bottom:12px;">
+<h2 style="font-size:0.85rem;font-weight:600;color:var(--ink);margin:0 0 6px;">Open review requests</h2>
 {{if .ReviewRequests}}
 <div class="table-scroll"><table>
 <thead><tr><th>Request</th><th>Issue</th><th>Status</th><th>Target version</th><th>Created</th></tr></thead>
@@ -103,23 +110,93 @@
 {{range .ReviewRequests}}<tr><td>{{.ID}}</td><td>{{if .HasIssueLink}}<a href="{{.IssueHref}}">{{.IssueLabel}}</a>{{else}}{{.IssueLabel}}{{end}}</td><td>{{.Status}}</td><td>{{.TargetVersion}}</td><td>{{.CreatedAt}}</td></tr>
 {{end}}</tbody>
 </table></div>
-{{else}}<p class="empty">No open review requests.</p>
+{{else}}<p class="board-empty">No open review requests.</p>
 {{end}}
-{{if .ReviewRequestsTruncated}}<p class="empty">Showing the first 100 open review requests; more exist.</p>{{end}}
+{{if .ReviewRequestsTruncated}}<p class="board-truncated">Showing the first 100 open review requests; more exist.</p>{{end}}
 </section>
+
 <section>
-<h2>Planning graph</h2>
-<p>{{.PlanningGraphSummary}}</p>
-<div class="graph">{{.PlanningGraphSVG}}</div>
+<h2 style="font-size:0.85rem;font-weight:600;color:var(--ink);margin:0 0 6px;">Planning graph</h2>
+<p class="board-generated">{{.PlanningGraphSummary}}</p>
+<div class="board-graph">{{.PlanningGraphSVG}}</div>
 <details>
 <summary>Mermaid source (copy into any Mermaid renderer)</summary>
 <pre>{{.PlanningGraphMermaid}}</pre>
 </details>
 </section>
+</details>
+
 </main>
+
+<!-- New Task Modal -->
+{{if .WritesEnabled}}
+<div class="modal-overlay" id="board-new-task-modal" hidden>
+  <div class="modal">
+    <button class="modal-close" id="board-modal-close-btn" type="button" aria-label="Close">&times;</button>
+    <h2>New Task</h2>
+    <form class="board-form" method="post" action="/api/issues" data-board-write-form>
+      <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+      <label>Title <input type="text" name="title" maxlength="300" required></label>
+      <label>Description <textarea name="description" rows="3"></textarea></label>
+      <label>Acceptance criteria <textarea name="acceptance_criteria" rows="3"></textarea></label>
+      <label>Priority <select name="priority"><option value="" selected>default (medium)</option>{{range .Priorities}}<option value="{{.}}">{{.}}</option>{{end}}</select></label>
+      <label>Status <select name="status"><option value="open" selected>open</option><option value="ready">ready</option></select></label>
+      <div class="board-form-actions">
+        <button class="btn" type="button" id="board-modal-cancel-btn">Cancel</button>
+        <button class="btn btn-primary" type="submit">Create task</button>
+      </div>
+    </form>
+  </div>
+</div>
+{{end}}
+
 <script>{{.LiveRefreshScript}}</script>
 <script>{{.SearchScript}}</script>
-<footer>Generated locally by <code>rhizome-mcp board --serve</code>.</footer>
+<script>
+(function(){
+  // New Task modal toggle
+  var newTaskBtn = document.getElementById('board-new-task-btn');
+  var modal = document.getElementById('board-new-task-modal');
+  var closeBtn = document.getElementById('board-modal-close-btn');
+  var cancelBtn = document.getElementById('board-modal-cancel-btn');
+
+  function showModal() {
+    if (modal) modal.hidden = false;
+  }
+
+  function hideModal() {
+    if (modal) modal.hidden = true;
+  }
+
+  if (newTaskBtn && modal) {
+    newTaskBtn.addEventListener('click', showModal);
+    if (closeBtn) closeBtn.addEventListener('click', hideModal);
+    if (cancelBtn) cancelBtn.addEventListener('click', hideModal);
+    modal.addEventListener('click', function(e) {
+      if (e.target === modal) hideModal();
+    });
+  }
+
+  // Check for modal state in live refresh - store it on the window for the live refresh client
+  window.__agentBoardModalOpen = function() {
+    return modal && !modal.hidden;
+  };
+
+  // Mark refresh status element
+  var root = document.querySelector('main[data-board-main]');
+  if (root) {
+    var statusEl = document.createElement('div');
+    statusEl.id = 'board-refresh-status';
+    statusEl.setAttribute('role', 'status');
+    statusEl.setAttribute('aria-live', 'polite');
+    statusEl.className = 'board-stale';
+    if (root.parentNode) {
+      root.parentNode.insertBefore(statusEl, root);
+    }
+  }
+})();
+</script>
+<footer class="board-footer">Agent Board · Generated {{.GeneratedAt}}</footer>
 </body>
 </html>
 {{end}}

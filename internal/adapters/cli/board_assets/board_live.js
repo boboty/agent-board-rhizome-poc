@@ -131,6 +131,12 @@
         this.renderStaleStatus();
         return false;
       }
+      // Check if modal is open (New Task modal)
+      if (this.windowImpl.__agentBoardModalOpen && this.windowImpl.__agentBoardModalOpen()) {
+        this.lastSuccessfulRefreshAt = this.nowImpl();
+        this.renderStaleStatus();
+        return false;
+      }
       const previousScrollY = this.windowImpl.scrollY;
       this.root.innerHTML = newMain.innerHTML;
       this.root.querySelectorAll("details[id]").forEach((detail) => {
@@ -174,18 +180,21 @@
         return;
       }
       if (!this.statusElement) {
-        this.statusElement = this.documentImpl.createElement("div");
-        this.statusElement.id = "board-refresh-status";
-        this.statusElement.setAttribute("role", "status");
-        this.statusElement.setAttribute("aria-live", "polite");
-        this.statusElement.style.cssText = "margin-bottom: 0.75rem; color: #b45309; font-size: 0.875rem;";
-        if (this.root.parentNode) {
-          this.root.parentNode.insertBefore(this.statusElement, this.root);
+        this.statusElement = this.documentImpl.getElementById("board-refresh-status");
+        if (!this.statusElement) {
+          this.statusElement = this.documentImpl.createElement("div");
+          this.statusElement.id = "board-refresh-status";
+          this.statusElement.setAttribute("role", "status");
+          this.statusElement.setAttribute("aria-live", "polite");
+          this.statusElement.className = "board-stale";
+          if (this.root.parentNode) {
+            this.root.parentNode.insertBefore(this.statusElement, this.root);
+          }
         }
       }
       if (this.staleStatus) {
         const stamp = this.lastSuccessfulRefreshAt ? this.lastSuccessfulRefreshAt.toLocaleTimeString() : "unknown";
-        this.statusElement.textContent = "stale • last success " + stamp;
+        this.statusElement.textContent = "stale \u2022 last success " + stamp;
         this.statusElement.hidden = false;
         return;
       }
@@ -199,10 +208,10 @@
     const endpoint = root.getAttribute("data-board-endpoint") || "/api/board";
     const pageRoute = root.getAttribute("data-board-route") || "/";
     const client = new BoardLiveClient(root, {endpoint: endpoint, pageRoute: pageRoute, intervalMs: 15000});
-    window.__rhizomeBoardLiveClient = client;
+    window.__agentBoardLiveClient = client;
   }
 
-  if (window.__rhizomeBoardLiveTestHooks) {
-    window.__rhizomeBoardLiveTestHooks.BoardLiveClient = BoardLiveClient;
+  if (window.__agentBoardLiveTestHooks) {
+    window.__agentBoardLiveTestHooks.BoardLiveClient = BoardLiveClient;
   }
 })();

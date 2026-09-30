@@ -228,8 +228,8 @@ function createHarness({ initialTestHooks = null, randomValue = 0.2, boardRespon
       window.scrollY = y;
     },
     addEventListener: () => {},
-    __rhizomeBoardLiveClient: undefined,
-    __rhizomeBoardLiveTestHooks: initialTestHooks,
+    __agentBoardLiveClient: undefined,
+    __agentBoardLiveTestHooks: initialTestHooks,
   };
   window.listeners = {};
   window.addEventListener = (event, handler) => {
@@ -307,7 +307,7 @@ function createHarness({ initialTestHooks = null, randomValue = 0.2, boardRespon
 function loadClient(scriptSource, harness) {
   const context = vm.createContext(harness.context);
   vm.runInContext(scriptSource, context, { filename: "board_html.go" });
-  return context.window.__rhizomeBoardLiveTestHooks?.BoardLiveClient;
+  return context.window.__agentBoardLiveTestHooks?.BoardLiveClient;
 }
 
 test("304 responses clear stale state and use the normal interval", async () => {
