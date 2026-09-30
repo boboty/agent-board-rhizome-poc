@@ -9,6 +9,7 @@
 <body>
 <h1>{{.Title}}</h1>
 <p class="generated">Generated {{.GeneratedAt}}</p>
+{{template "boardWorkflowSection" .Workflow}}
 <section>
 <h2>Status counts</h2>
 {{if .StatusCounts}}

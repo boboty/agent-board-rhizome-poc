@@ -28,3 +28,50 @@ footer { color: #94a3b8; font-size: 0.8rem; margin-top: 3rem; }
   th { color: #94a3b8; }
   .graph { border-color: #1e293b; }
 }
+
+/* Workflow (Kanban) projection: the board's primary view. */
+.kanban {
+  display: grid; grid-auto-flow: column; grid-auto-columns: minmax(240px, 1fr);
+  gap: 0.75rem; overflow-x: auto; padding-bottom: 0.5rem; margin-top: 0.75rem;
+  align-items: start;
+}
+.kanban-column {
+  background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px;
+  padding: 0.5rem; min-width: 240px;
+}
+.kanban-column-heading {
+  font-size: 0.85rem; letter-spacing: 0.04em; text-transform: uppercase;
+  color: #475569; margin: 0 0 0.5rem; display: flex; justify-content: space-between;
+  align-items: center; border-bottom: 1px solid #e2e8f0; padding-bottom: 0.35rem;
+}
+.kanban-count {
+  background: #e2e8f0; color: #334155; border-radius: 999px;
+  padding: 0.05rem 0.45rem; font-size: 0.75rem;
+}
+.kanban-cards { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.5rem; }
+.kanban-card {
+  background: #ffffff; border: 1px solid #e2e8f0; border-radius: 6px;
+  padding: 0.5rem 0.6rem; font-size: 0.85rem;
+}
+.kanban-card-head { display: flex; justify-content: space-between; gap: 0.5rem; align-items: baseline; }
+.kanban-priority {
+  font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.03em;
+  color: #475569; background: #eef2ff; border-radius: 4px; padding: 0.05rem 0.35rem;
+}
+.kanban-card-title { color: #334155; margin-top: 0.15rem; overflow-wrap: anywhere; }
+.kanban-field { margin-top: 0.25rem; overflow-wrap: anywhere; color: #0f172a; }
+.kanban-key { color: #64748b; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.03em; }
+.kanban-delivery { list-style: none; margin: 0.15rem 0 0; padding: 0; }
+.kanban-delivery li { overflow-wrap: anywhere; }
+.kanban-delivery code { font-size: 0.78rem; }
+.kanban-delivery-title { color: #64748b; }
+.kanban-unprojected { margin-top: 0.75rem; }
+
+@media (prefers-color-scheme: dark) {
+  .kanban-column { background: #0f172a; border-color: #1e293b; }
+  .kanban-column-heading { color: #94a3b8; border-bottom-color: #1e293b; }
+  .kanban-count { background: #1e293b; color: #cbd5e1; }
+  .kanban-card { background: #111c31; border-color: #1e293b; }
+  .kanban-card-title, .kanban-field { color: #e2e8f0; }
+  .kanban-priority { background: #1e293b; color: #cbd5e1; }
+}

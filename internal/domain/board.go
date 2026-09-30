@@ -96,4 +96,9 @@ type BoardResult struct {
 	ReviewRequests     []ReviewRequest        `json:"review_requests"`
 	PlanningGraph      GraphResult            `json:"planning_graph"`
 	Truncation         BoardTruncation        `json:"truncation"`
+	// Workflow is the read-only Kanban projection of the same state: one card
+	// per issue placed in at most one Agent Board workflow column, derived on
+	// every read from issue, attempt, and review data. It is additive; the
+	// collections above keep their existing meaning and contracts.
+	Workflow BoardWorkflowProjection `json:"workflow"`
 }

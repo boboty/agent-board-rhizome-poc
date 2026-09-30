@@ -1195,6 +1195,8 @@ func (c *CLI) writeBoardTable(result domain.BoardResult) error {
 		builder.WriteString(fmt.Sprintf("%s\t%d\n", count.EffectiveStatus, count.Count))
 	}
 
+	writeBoardWorkflowTable(&builder, result.Workflow)
+
 	builder.WriteString("\nactive_attempts\n")
 	builder.WriteString("attempt_id\tissue\tkind\tsession_label\tsession_instance_key\tsession_client_name\tsession_model\tsession_worktree\tlease_expires_at\n")
 	for _, attempt := range result.ActiveAttempts {
@@ -1556,6 +1558,10 @@ type BoardResponse struct {
 	ReviewRequests     []BoardReviewRequest `json:"review_requests"`
 	PlanningGraph      BoardGraph           `json:"planning_graph"`
 	Truncation         BoardTruncation      `json:"truncation"`
+	// Workflow is the Agent Board Kanban projection. It is additive: the
+	// collections above keep their existing meaning, and a client that does
+	// not know this field can ignore it.
+	Workflow BoardWorkflow `json:"workflow"`
 }
 
 // BoardTruncation reports, per bounded board collection, whether that
@@ -1721,6 +1727,7 @@ func boardResponseFromDomain(result domain.BoardResult) BoardResponse {
 			ActiveReservations: result.Truncation.ActiveReservations,
 			ReviewRequests:     result.Truncation.ReviewRequests,
 		},
+		Workflow: boardWorkflowFromDomain(result.Workflow),
 	}
 }
 

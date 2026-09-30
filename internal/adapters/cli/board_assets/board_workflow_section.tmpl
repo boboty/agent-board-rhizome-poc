@@ -1,0 +1,63 @@
+{{define "boardWorkflowSection"}}
+<section class="workflow" aria-labelledby="workflow-heading">
+<h2 id="workflow-heading">Workflow board</h2>
+<p class="generated">Read-only Kanban projection of live project state: one card per issue, derived from issue, attempt, and review data. Cards never move between columns here.</p>
+<div class="kanban">
+{{range .Columns}}
+<div class="kanban-column" data-column="{{.Column}}">
+<h3 class="kanban-column-heading">{{.Title}} <span class="kanban-count">{{.Count}}</span></h3>
+{{if .IsEmpty}}<p class="empty">No cards.</p>{{else}}
+<ul class="kanban-cards">
+{{range .Cards}}
+<li class="kanban-card" data-issue="{{.IssueLabel}}">
+<div class="kanban-card-head"><strong>{{if .HasIssueLink}}<a href="{{.IssueHref}}">{{.IssueLabel}}</a>{{else}}{{.IssueLabel}}{{end}}</strong><span class="kanban-priority">{{.Priority}}</span></div>
+<div class="kanban-card-title">{{.Title}}</div>
+{{if .HasReadyRank}}<div class="kanban-field"><span class="kanban-key">READY rank</span> {{.ReadyRank}}</div>{{end}}
+{{if .HasAttempt}}<div class="kanban-field"><span class="kanban-key">{{.ExecutorRole}}</span> {{.ExecutorLabel}}</div>
+<div class="kanban-field"><span class="kanban-key">Instance</span> {{.ExecutorInstanceKey}}</div>
+<div class="kanban-field"><span class="kanban-key">Harness</span> {{.ExecutorClient}}</div>
+<div class="kanban-field"><span class="kanban-key">Model</span> {{.ExecutorModel}}</div>
+<div class="kanban-field"><span class="kanban-key">Worktree</span> {{.ExecutorWorktree}}</div>
+{{if .HasLeaseExpiry}}<div class="kanban-field"><span class="kanban-key">Lease expires</span> {{.LeaseExpiresAt}}</div>{{end}}
+{{end}}
+{{if .HasReview}}<div class="kanban-field"><span class="kanban-key">Review</span> {{.ReviewStatus}}</div>
+<div class="kanban-field"><span class="kanban-key">Request</span> {{.ReviewRequestID}}</div>
+<div class="kanban-field"><span class="kanban-key">Target version</span> {{.ReviewTargetVersion}}</div>
+<div class="kanban-field"><span class="kanban-key">Requested</span> {{.ReviewRequestedAt}}</div>
+{{if .HasReviewResolved}}<div class="kanban-field"><span class="kanban-key">Resolved</span> {{.ReviewResolvedAt}}</div>{{end}}
+{{if .HasChangesRequested}}<div class="kanban-field"><span class="kanban-key">Changes requested</span> {{.ChangesRequestedCount}} round(s)</div>{{end}}
+{{end}}
+{{if .HasDelivery}}<div class="kanban-field"><span class="kanban-key">Delivery</span></div>
+<ul class="kanban-delivery">
+{{range .Delivery}}<li>{{.Type}} <code>{{.URI}}</code>{{if .Title}} <span class="kanban-delivery-title">{{.Title}}</span>{{end}}</li>
+{{end}}
+</ul>
+{{end}}
+</li>
+{{end}}
+</ul>
+{{end}}
+</div>
+{{end}}
+</div>
+{{if .ReadyTruncated}}<p class="empty">READY cards are cut at the collection limit; more may exist.</p>{{end}}
+{{if .VerifyingTruncated}}<p class="empty">VERIFYING cards are cut at the collection limit; more may exist.</p>{{end}}
+{{if .DoneTruncated}}<p class="empty">DONE cards are cut at the collection limit; more may exist.</p>{{end}}
+{{if .ReviewTruncated}}<p class="empty">Review signals are cut at the collection limit; a card's review state may be older than the newest request.</p>{{end}}
+{{if .DeliveryTruncated}}<p class="empty">Some cards have more delivery references than the card shows; open the issue for the full list.</p>{{end}}
+{{if .DeliveryUnavailable}}<p class="empty">Some cards' delivery references could not be read; the cards are shown without them.</p>{{end}}
+{{if .HasUnprojected}}
+<details class="kanban-unprojected">
+<summary>Not on the workflow board ({{len .Unprojected}})</summary>
+<p class="generated">These issues are real project state but no V0.1 workflow column describes them, so the board reports them instead of guessing a column.</p>
+<div class="table-scroll"><table>
+<thead><tr><th>Issue</th><th>Title</th><th>Stored status</th><th>Reason</th><th>Detail</th></tr></thead>
+<tbody>
+{{range .Unprojected}}<tr><td>{{if .HasIssueLink}}<a href="{{.IssueHref}}">{{.IssueLabel}}</a>{{else}}{{.IssueLabel}}{{end}}</td><td>{{.Title}}</td><td>{{.StoredStatus}}</td><td>{{.Reason}}</td><td>{{.Detail}}</td></tr>
+{{end}}</tbody>
+</table></div>
+{{if .UnprojectedTruncated}}<p class="empty">Showing the first 100 not-projected issues; more exist.</p>{{end}}
+</details>
+{{end}}
+</section>
+{{end}}

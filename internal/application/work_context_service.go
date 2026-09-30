@@ -38,3 +38,25 @@ func (service *WorkContextService) GetWorkContext(ctx context.Context, input dom
 	}
 	return domain.CloneWorkContext(result), nil
 }
+
+// IssueDeliveryReferences returns one issue's bounded delivery artifacts for
+// the board's workflow cards: the same artifact projection get_work_context
+// carries, plus whether that artifact read was truncated. It reuses the
+// work-context read path rather than adding a second artifact query, so a card
+// and a work context can never disagree about what was delivered.
+//
+// Reuse has a cost worth naming: GetWorkContext resolves the issue, its
+// previous attempt, its gate summary and its reservation count regardless of
+// Include, so this is a full work-context read per card, not a cheap
+// artifact-only read. The board calls it once per non-READY card, bounded by
+// the same collection limits as the rest of the board.
+func (service *WorkContextService) IssueDeliveryReferences(ctx context.Context, issueID string) ([]domain.Artifact, bool, error) {
+	result, err := service.GetWorkContext(ctx, domain.GetWorkContextInput{
+		IssueID: issueID,
+		Include: []domain.WorkContextInclude{domain.WorkContextIncludeArtifacts},
+	})
+	if err != nil {
+		return nil, false, err
+	}
+	return result.Artifacts, result.Truncated, nil
+}

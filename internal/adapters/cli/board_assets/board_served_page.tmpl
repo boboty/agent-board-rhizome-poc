@@ -10,6 +10,7 @@
 <main data-board-main data-board-endpoint="/api/board" data-board-route="/">
 <h1>{{.Title}}</h1>
 <p class="generated">Generated {{.GeneratedAt}}</p>
+{{template "boardWorkflowSection" .Workflow}}
 <section>
 <h2>Search</h2>
 <form data-board-search-form>

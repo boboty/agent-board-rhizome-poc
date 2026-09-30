@@ -25,6 +25,8 @@ type boardStaticPageViewModel struct {
 	ActiveReservationsTruncated bool
 	BlockedIssuesTruncated      bool
 	ReviewRequestsTruncated     bool
+	// Workflow is the Kanban projection rendered as the board's primary view.
+	Workflow boardWorkflowViewModel
 }
 
 type boardServedPageViewModel struct {
@@ -54,6 +56,8 @@ type boardServedPageViewModel struct {
 	ActiveReservationsTruncated bool
 	BlockedIssuesTruncated      bool
 	ReviewRequestsTruncated     bool
+	// Workflow is the Kanban projection rendered as the board's primary view.
+	Workflow boardWorkflowViewModel
 }
 
 type boardSearchResultViewModel struct {
@@ -250,6 +254,7 @@ func newBoardStaticPageViewModel(result domain.BoardResult) boardStaticPageViewM
 		ActiveReservationsTruncated: result.Truncation.ActiveReservations,
 		BlockedIssuesTruncated:      result.Truncation.BlockedIssues,
 		ReviewRequestsTruncated:     result.Truncation.ReviewRequests,
+		Workflow:                    newBoardWorkflowViewModel(result.Workflow, false),
 	}
 	for _, count := range result.StatusCounts {
 		vm.StatusCounts = append(vm.StatusCounts, boardStatusCountViewModel{Status: string(count.EffectiveStatus), Count: int(count.Count)})
@@ -325,6 +330,7 @@ func newBoardServedPageViewModel(result domain.BoardResult, state servedBoardSea
 		ActiveReservationsTruncated: result.Truncation.ActiveReservations,
 		BlockedIssuesTruncated:      result.Truncation.BlockedIssues,
 		ReviewRequestsTruncated:     result.Truncation.ReviewRequests,
+		Workflow:                    newBoardWorkflowViewModel(result.Workflow, true),
 	}
 	for _, count := range result.StatusCounts {
 		vm.StatusCounts = append(vm.StatusCounts, boardStatusCountViewModel{Status: string(count.EffectiveStatus), Count: int(count.Count)})
@@ -654,4 +660,215 @@ func sameIssueIdentity(left domain.Issue, right domain.Issue) bool {
 	leftDisplay := strings.TrimSpace(left.DisplayID)
 	rightDisplay := strings.TrimSpace(right.DisplayID)
 	return leftDisplay != "" && rightDisplay != "" && leftDisplay == rightDisplay
+}
+
+// boardWorkflowViewModel is the Kanban projection rendered as the board's
+// primary view: one column per Agent Board workflow state, in board order,
+// with every column present even when empty so a reader never has to infer a
+// column from the cards that happen to exist.
+type boardWorkflowViewModel struct {
+	Columns              []boardWorkflowColumnViewModel
+	Unprojected          []boardWorkflowUnprojectedViewModel
+	HasUnprojected       bool
+	ReadyTruncated       bool
+	VerifyingTruncated   bool
+	DoneTruncated        bool
+	ReviewTruncated      bool
+	UnprojectedTruncated bool
+	DeliveryTruncated    bool
+	DeliveryUnavailable  bool
+}
+
+type boardWorkflowColumnViewModel struct {
+	Column  string
+	Title   string
+	Count   int
+	Cards   []boardWorkflowCardViewModel
+	IsEmpty bool
+}
+
+// boardWorkflowCardViewModel is one card. Optional domain data degrades to an
+// em dash plus a boolean "has" flag, so a template renders a placeholder
+// rather than inventing a developer, verifier, or commit.
+type boardWorkflowCardViewModel struct {
+	Column       string
+	IssueLabel   string
+	IssueHref    string
+	HasIssueLink bool
+	Title        string
+	Priority     string
+	HasReadyRank bool
+	ReadyRank    string
+
+	HasAttempt          bool
+	ExecutorRole        string
+	ExecutorLabel       string
+	ExecutorInstanceKey string
+	ExecutorClient      string
+	ExecutorModel       string
+	ExecutorWorktree    string
+	HasLeaseExpiry      bool
+	LeaseExpiresAt      string
+
+	HasReview             bool
+	ReviewRequestID       string
+	ReviewStatus          string
+	ReviewTargetVersion   string
+	ReviewRequestedAt     string
+	HasReviewResolved     bool
+	ReviewResolvedAt      string
+	HasChangesRequested   bool
+	ChangesRequestedCount int
+
+	HasDelivery bool
+	Delivery    []boardWorkflowDeliveryViewModel
+}
+
+type boardWorkflowDeliveryViewModel struct {
+	Type  string
+	URI   string
+	Title string
+}
+
+type boardWorkflowUnprojectedViewModel struct {
+	IssueLabel   string
+	IssueHref    string
+	HasIssueLink bool
+	Title        string
+	StoredStatus string
+	Reason       string
+	Detail       string
+}
+
+// newBoardWorkflowViewModel renders the Kanban projection. linkIssues is false
+// for the offline HTML snapshot, whose contract is to be fully self-contained:
+// it serves no routes, so an /issues/ link would be dead there. The served
+// board passes true and renders each card as a link to its issue page.
+func newBoardWorkflowViewModel(workflow domain.BoardWorkflowProjection, linkIssues bool) boardWorkflowViewModel {
+	cardsByColumn := make(map[domain.BoardWorkflowColumn][]boardWorkflowCardViewModel, len(workflow.Columns))
+	for _, card := range workflow.Cards {
+		cardsByColumn[card.Column] = append(cardsByColumn[card.Column], newBoardWorkflowCardViewModel(card, linkIssues))
+	}
+	vm := boardWorkflowViewModel{
+		Columns:              make([]boardWorkflowColumnViewModel, 0, len(workflow.Columns)),
+		Unprojected:          make([]boardWorkflowUnprojectedViewModel, 0, len(workflow.Unprojected)),
+		ReadyTruncated:       workflow.Truncation.Ready,
+		VerifyingTruncated:   workflow.Truncation.Verifying,
+		DoneTruncated:        workflow.Truncation.Done,
+		ReviewTruncated:      workflow.Truncation.ReviewRequests,
+		UnprojectedTruncated: workflow.Truncation.Unprojected,
+		DeliveryTruncated:    workflow.Truncation.DeliveryOverflow,
+		DeliveryUnavailable:  workflow.Truncation.DeliveryUnavailable,
+	}
+	for _, column := range workflow.Columns {
+		cards := cardsByColumn[column.Column]
+		if cards == nil {
+			cards = []boardWorkflowCardViewModel{}
+		}
+		vm.Columns = append(vm.Columns, boardWorkflowColumnViewModel{
+			Column: string(column.Column), Title: column.Title, Count: column.Count,
+			Cards: cards, IsEmpty: len(cards) == 0,
+		})
+	}
+	for _, item := range workflow.Unprojected {
+		label := item.IssueDisplayID
+		if strings.TrimSpace(label) == "" {
+			label = item.IssueID
+		}
+		row := boardWorkflowUnprojectedViewModel{
+			IssueLabel:   label,
+			Title:        item.Title,
+			StoredStatus: string(item.StoredStatus),
+			Reason:       item.Reason,
+			Detail:       item.Detail,
+		}
+		if linkIssues && strings.TrimSpace(item.IssueID) != "" {
+			row.IssueHref = boardIssuePath(item.IssueID, label)
+			row.HasIssueLink = true
+		}
+		vm.Unprojected = append(vm.Unprojected, row)
+	}
+	vm.HasUnprojected = len(vm.Unprojected) > 0
+	return vm
+}
+
+func newBoardWorkflowCardViewModel(card domain.BoardWorkflowCard, linkIssues bool) boardWorkflowCardViewModel {
+	label := card.IssueDisplayID
+	if strings.TrimSpace(label) == "" {
+		label = card.IssueID
+	}
+	vm := boardWorkflowCardViewModel{
+		Column: string(card.Column), IssueLabel: label,
+		Title: card.Title, Priority: string(card.Priority),
+	}
+	if linkIssues && strings.TrimSpace(card.IssueID) != "" {
+		vm.IssueHref = boardIssuePath(card.IssueID, label)
+		vm.HasIssueLink = true
+	}
+	if card.ReadyRank != nil {
+		vm.HasReadyRank = true
+		vm.ReadyRank = strconv.FormatInt(*card.ReadyRank, 10)
+	}
+	if card.AttemptID != "" {
+		vm.HasAttempt = true
+		switch card.AttemptKind {
+		case domain.AttemptKindWork:
+			vm.ExecutorRole = "Developer"
+		case domain.AttemptKindReview:
+			vm.ExecutorRole = "Verifier"
+		default:
+			// A kind this board does not know is still an executor; naming
+			// the role would be a guess, so it degrades to the neutral term.
+			vm.ExecutorRole = "Executor"
+		}
+		vm.ExecutorLabel = workflowFieldValue(card.ExecutorLabel)
+		vm.ExecutorInstanceKey = workflowFieldValue(card.ExecutorInstanceKey)
+		vm.ExecutorClient = workflowFieldValue(card.ExecutorClient)
+		vm.ExecutorModel = workflowFieldValue(card.ExecutorModel)
+		vm.ExecutorWorktree = workflowFieldValue(card.ExecutorWorktree)
+		if card.LeaseExpiresAt != nil && !card.LeaseExpiresAt.IsZero() {
+			vm.HasLeaseExpiry = true
+			vm.LeaseExpiresAt = card.LeaseExpiresAt.UTC().Format(time.RFC3339)
+		}
+	}
+	if card.ReviewRequestID != nil {
+		vm.HasReview = true
+		vm.ReviewRequestID = *card.ReviewRequestID
+		if card.ReviewStatus != nil {
+			vm.ReviewStatus = string(*card.ReviewStatus)
+		}
+		if card.ReviewTargetVersion != nil {
+			vm.ReviewTargetVersion = strconv.FormatInt(*card.ReviewTargetVersion, 10)
+		}
+		if card.ReviewRequestedAt != nil && !card.ReviewRequestedAt.IsZero() {
+			vm.ReviewRequestedAt = card.ReviewRequestedAt.UTC().Format(time.RFC3339)
+		}
+		if card.ReviewResolvedAt != nil && !card.ReviewResolvedAt.IsZero() {
+			vm.HasReviewResolved = true
+			vm.ReviewResolvedAt = card.ReviewResolvedAt.UTC().Format(time.RFC3339)
+		}
+	}
+	if card.ChangesRequestedCount > 0 {
+		vm.HasChangesRequested = true
+		vm.ChangesRequestedCount = card.ChangesRequestedCount
+	}
+	for _, reference := range card.Delivery {
+		row := boardWorkflowDeliveryViewModel{Type: string(reference.Type), URI: reference.URI}
+		if reference.Title != nil && strings.TrimSpace(*reference.Title) != "" {
+			row.Title = *reference.Title
+		}
+		vm.Delivery = append(vm.Delivery, row)
+	}
+	vm.HasDelivery = len(vm.Delivery) > 0
+	return vm
+}
+
+// workflowFieldValue renders one optional workflow field, degrading to an em
+// dash rather than an empty cell so a reader can tell "not recorded" from
+// "recorded as blank".
+func workflowFieldValue(value *string) string {
+	if value == nil || strings.TrimSpace(*value) == "" {
+		return "—"
+	}
+	return *value
 }

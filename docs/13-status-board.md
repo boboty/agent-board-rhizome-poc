@@ -129,7 +129,8 @@ the JSON response, the CLI table (as a `truncated` marker row), both HTML views
 the query that loaded the collection returned more results than the limit.
 
 `attempt_gates` is one row per active attempt, so it shares `active_attempts`'s
-flag.
+flag. The workflow projection (§8) adds its own bounded reads and reports them
+under `workflow.truncation` rather than the four flags above.
 
 **Active reservations pre-filter semantics:** the `truncation.active_reservations`
 flag is set from the reservation page's result *before* `filterReservationsByActiveAttempts`
@@ -198,7 +199,111 @@ refreshes when a requirement is satisfied even if nothing else changed. The
 served board remains read-only: gate state is displayed, never mutated, from
 the browser.
 
-## 8. Process lifetime and stdout contract
+## 8. Workflow (Kanban) projection
+
+The board renders a human workflow view of the same project state: six
+columns, one card per issue. It is a projection, not a second status store.
+
+- **READY** — stored `ready`, no active attempt, and no review that resolved
+  to `changes_requested`.
+- **IN PROGRESS** — the issue has an active work attempt.
+- **VERIFYING** — stored `review`, or the issue has an active review attempt.
+- **RC** — stored `ready` and the issue's most recent review request is
+  `changes_requested`. `changes_requested` moves an issue back to `ready`
+  (docs/09), so "ready after a failed review" is the RC state and is not
+  distinguishable from unstarted READY work by status alone.
+- **DECISION REQUIRED** — stored `blocked` because a review resolved to
+  `blocked`, i.e. the reviewer stopped pending an authoritative decision.
+- **DONE** — stored `done`.
+
+### 8.1. Derivation rules
+
+The stored status is the spine; a review signal only refines the two states a
+review outcome can produce. Each issue is placed by the first matching rule:
+
+1. archived → not projected;
+2. `done` → DONE;
+3. `cancelled` → not projected;
+4. an active attempt → IN PROGRESS for a work attempt, VERIFYING for a review
+   attempt (checked before the stored status, because a claimed issue keeps
+   its stored status while its effective status is derived);
+5. `review` → VERIFYING;
+6. `blocked` → DECISION REQUIRED when the latest review resolved to `blocked`,
+   otherwise not projected (an external block, not a decision request);
+7. `ready` → RC when the latest review resolved to `changes_requested`,
+   otherwise READY;
+8. anything else → not projected.
+
+A review state that no rule claims cannot move a card out of the column its
+stored status implies. "Latest review" means the newest request by creation
+time (request ID breaking ties) across every review status except
+`superseded` — a superseded request always has a later successor that is read,
+so it can never be the newest decision. Terminal statuses count: an issue can
+be reopened (`done -> ready`) or have a request withdrawn, so an older
+`changes_requested` or `blocked` request must not keep a card in RC or
+DECISION REQUIRED after a later `approved`/`cancelled` decision.
+
+### 8.2. One task, one column
+
+Exactly one card is produced per issue, so an issue can never occupy two
+columns. An issue that no column honestly describes is not guessed into one:
+it is reported in the projection's unprojected list with a machine-readable
+reason (`archived`, `cancelled`, `not_ready`, `externally_blocked`,
+`unknown_status`) and a human sentence. A consumer therefore sees that work
+was left out and why.
+
+### 8.3. Card fields and degradation
+
+A card carries the task identifier and title, type, priority, `is_claimable`,
+and, when they exist: the READY-queue rank (rendered on READY cards, the only
+column whose position it orders), the claiming session's executor attribution
+(label, instance key, client, model, worktree, lease expiry), the review
+request's identifier, status, target version, and timestamps with the count of
+`changes_requested` rounds read, and the issue's commit/branch/pull-request
+artifacts as delivery references.
+
+Every optional field is omitted from the JSON when the underlying data did not
+carry it; the HTML views render an em-dash placeholder rather than an empty
+cell. The board never synthesizes a developer, verifier, or commit it did not
+read: an attempt claimed without a session handle leaves the executor fields
+absent, and an issue with no commit artifact has no delivery reference.
+
+Several bounded reads can leave a card's information incomplete, and each is
+reported rather than hidden under `workflow.truncation`: `ready`, `verifying`,
+and `done` cover the three stored-status issue reads, `unprojected` covers the
+open/blocked/cancelled read, and `review_requests` marks that a card's review
+state may be older than the newest request. A card shows at most
+`boardDeliveryReferenceLimit` delivery references; `delivery_overflow` marks
+that some card shows fewer references than its issue has (the per-card cap or a
+truncated artifact read), and `delivery_unavailable` marks that a card's
+delivery references could not be read at all. A card count is therefore always
+a lower-bound-safe number whenever its flag is set.
+
+### 8.4. Surfaces
+
+- **CLI JSON** (`rhizome-mcp board --format json`) and **`GET /api/board`**
+  gain a `workflow` object with `columns`, `cards`, `unprojected`, and
+  `truncation`. The addition is additive: every pre-existing field keeps its
+  meaning.
+- **CLI table** gains `workflow`, `workflow_cards`, and
+  `workflow_unprojected` sections after `status_counts`.
+- **HTML** renders the Kanban as the page's primary view on both the static
+  snapshot and the served board. The status counts, active attempts, blocked
+  issues, review queue, and planning graph remain as auxiliary sections.
+
+The projection participates in the semantic ETag (§4), so a card moving
+between columns reaches a polling client even when nothing else changed. The
+served board stays read-only: the Kanban is displayed, never dragged or
+mutated, from the browser.
+
+An explicit verification-round ordinal is not projected. The bounded review
+read can count how many `changes_requested` requests an issue has, which is
+what the card shows, but the total number of verification rounds an issue has
+been through is not addressable without a per-issue review history read, and
+the free text a reviewer wrote when requesting changes lives on the review
+outcome record, which the board's bounded read does not carry.
+
+## 9. Process lifetime and stdout contract
 
 The served board is an independent process started by `rhizome-mcp board --serve` and is unrelated to any MCP session context. It holds no session state and terminates cleanly on interrupt (SIGINT/SIGTERM).
 
@@ -210,11 +315,13 @@ http://HOST:PORT/
 
 (with trailing slash). The VS Code extension parses this line to extract the server endpoint. Treat it as a stable contract: the format must not change.
 
-## 9. Scope exclusions
+## 10. Scope exclusions
 
 The status board explicitly does not include:
 
 - Write operations from the browser or any remote client. The board is read-only.
+  The workflow projection follows the same rule: no drag-and-drop, no column or
+  READY-rank mutation, and no task creation or editing from the web board.
 - Authentication or user accounts. It is local-only and has no credential or permission model.
 - Remote or multi-user hosting. It is not designed for deployment on the internet or behind a reverse proxy.
 - Cross-origin requests. CORS is not implemented; only same-origin requests (or requests with no Origin header) are accepted.
