@@ -162,7 +162,7 @@ The MCP contract must follow these rules:
 
 The first version does not include:
 
-- hosted, remote, or multi-user web UI; any browser write operations; or authenticated/permission-gated UI (a loopback-only read-only local status board is in scope; see docs/13);
+- hosted, remote, or multi-user web UI; browser write operations beyond the four minimal same-origin task actions (create, edit, queue into READY, reorder READY); or authenticated/permission-gated UI (a loopback-only local status board with exactly that write surface is in scope; see docs/13 §11);
 - desktop UI;
 - authentication or user accounts;
 - multi-user permissions;

@@ -4,6 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
+	"math"
 	"strings"
 	"time"
 
@@ -12,10 +14,29 @@ import (
 	"rhizome-mcp/internal/ports"
 )
 
+// readyRankUnranked is the sort key substituted for an issue that has no
+// explicit READY-queue position, or that is not currently ready. It is the
+// largest int64 so every ranked ready issue sorts ahead of an unranked one
+// while the remaining order (priority, claimability, sequence) is unchanged.
+// It is also the value an older cursor -- one encoded before ready_rank
+// existed -- decodes to, which keeps that traversal inside the unranked
+// bucket: with no ranks in the database it reproduces the pre-upgrade order
+// exactly, and if a rank appears mid-traversal that item moves into a bucket
+// the cursor has already passed, so it is not revisited.
+const readyRankUnranked int64 = math.MaxInt64
+
 type issueCursor struct {
 	PriorityRank int   `json:"priority_rank"`
 	IsClaimable  bool  `json:"is_claimable"`
 	SequenceNo   int64 `json:"sequence_no"`
+	// ReadyRankKey is the readyRankUnranked-normalized sort key of the last
+	// item. A cursor minted before ready_rank existed omits it and decodes to
+	// nil, which is treated as unranked -- the bucket that cursor was already
+	// traversing. The envelope version is deliberately not bumped: bumping it
+	// would reject those older cursors outright, whereas the only
+	// incompatibility left is a pre-upgrade binary reading a post-upgrade
+	// cursor, which is an acceptable rolling-upgrade boundary.
+	ReadyRankKey *int64 `json:"ready_rank_key,omitempty"`
 }
 
 var issueCursorCodec = pagination.NewCodec[issueCursor](0)
@@ -44,6 +65,15 @@ const (
 			AND ` + issueUnresolvedBlockerCountSQL + ` = 0
 		THEN 1 ELSE 0 END)`
 )
+
+// issueReadyRankKeySQL is the single integer sort key for the READY queue: a
+// ready issue with an explicit rank sorts by that rank, and every other issue
+// shares readyRankUnranked, which makes the key a no-op for databases that
+// have never set one. The literal is generated from readyRankUnranked so the
+// two can never drift.
+var issueReadyRankKeySQL = fmt.Sprintf(`(CASE
+	WHEN issues.status = 'ready' AND issues.ready_rank IS NOT NULL THEN issues.ready_rank
+	ELSE %d END)`, readyRankUnranked)
 
 func issueActiveAttemptIDSQL(now time.Time) string {
 	return `(SELECT id FROM work_attempts WHERE issue_id = issues.id AND status = 'active' AND lease_expires_at > '` +
@@ -98,7 +128,7 @@ func fetchIssueProjection(ctx context.Context, query Queryer, where string, args
 	statement := `SELECT id, sequence_no, type, title, description, acceptance_criteria,
 		status, priority, parent_id, blocked_reason, version,
 		created_by_session_id, created_at, updated_at, closed_at,
-		archived_at, archived_by_session_id,
+		archived_at, archived_by_session_id, ready_rank,
 		` + issueUnresolvedBlockerCountSQL + ` AS unresolved_blocker_count,
 		` + issueBlockedSQL + ` AS is_blocked,
 		` + issueClaimableSQLAt(now) + ` AS is_claimable,
@@ -144,6 +174,12 @@ func (repository *IssueRepository) ListIssues(ctx context.Context, command ports
 				err = errors.New("invalid issue cursor payload")
 			}
 			return domain.IssueList{}, issueCursorError(err)
+		}
+		if decoded.ReadyRankKey != nil {
+			rank := *decoded.ReadyRankKey
+			if rank < 0 || (rank > domain.MaxReadyRank && rank != readyRankUnranked) {
+				return domain.IssueList{}, issueCursorError(errors.New("invalid issue cursor ready rank"))
+			}
 		}
 		after = &decoded
 	}
@@ -195,16 +231,21 @@ func (repository *IssueRepository) ListIssues(ctx context.Context, command ports
 		}
 		if after != nil {
 			prioritySQL := issuePriorityRankSQL
-			where = append(where, "("+prioritySQL+" < ? OR ("+prioritySQL+" = ? AND ("+
-				claimableSQL+" < ? OR ("+claimableSQL+" = ? AND sequence_no > ?))))")
-			args = append(args, after.PriorityRank, after.PriorityRank, boolInt(after.IsClaimable),
+			readyRankKey := readyRankUnranked
+			if after.ReadyRankKey != nil {
+				readyRankKey = *after.ReadyRankKey
+			}
+			where = append(where, "("+issueReadyRankKeySQL+" > ? OR ("+issueReadyRankKeySQL+" = ? AND ("+
+				prioritySQL+" < ? OR ("+prioritySQL+" = ? AND ("+
+				claimableSQL+" < ? OR ("+claimableSQL+" = ? AND sequence_no > ?))))))")
+			args = append(args, readyRankKey, readyRankKey, after.PriorityRank, after.PriorityRank, boolInt(after.IsClaimable),
 				boolInt(after.IsClaimable), after.SequenceNo)
 		}
 
 		statement := `SELECT id, sequence_no, type, title, description, acceptance_criteria,
 			status, priority, parent_id, blocked_reason, version,
 			created_by_session_id, created_at, updated_at, closed_at,
-			archived_at, archived_by_session_id,
+			archived_at, archived_by_session_id, ready_rank,
 			` + issueUnresolvedBlockerCountSQL + ` AS unresolved_blocker_count,
 			` + issueBlockedSQL + ` AS is_blocked,
 			` + claimableSQL + ` AS is_claimable,
@@ -212,7 +253,7 @@ func (repository *IssueRepository) ListIssues(ctx context.Context, command ports
 			` + activeAttemptSQL + ` AS active_attempt_id,
 			` + issuePriorityRankSQL + ` AS priority_rank
 			FROM issues WHERE ` + strings.Join(where, " AND ") +
-			` ORDER BY priority_rank DESC, is_claimable DESC, sequence_no ASC LIMIT ?`
+			` ORDER BY ` + issueReadyRankKeySQL + ` ASC, priority_rank DESC, is_claimable DESC, sequence_no ASC LIMIT ?`
 		args = append(args, input.Limit+1)
 		rows, err := query.QueryContext(ctx, statement, args...)
 		if err != nil {
@@ -243,6 +284,7 @@ func (repository *IssueRepository) ListIssues(ctx context.Context, command ports
 				PriorityRank: issuePriorityRank(last.Priority),
 				IsClaimable:  last.IsClaimable,
 				SequenceNo:   last.SequenceNo,
+				ReadyRankKey: int64Pointer(readyRankSortKey(last)),
 			})
 			if err != nil {
 				return domain.WrapError(err, domain.CodeStorageFailure, "cannot encode issue cursor", false)
@@ -304,6 +346,7 @@ func scanIssueListProjection(scanner labelScanner) (domain.IssueProjection, erro
 		id, issueType, title, status, priority, createdAt, updatedAt                      string
 		description, acceptanceCriteria, parentID, blockedReason                          sql.NullString
 		createdBySessionID, closedAt, archivedAt, archivedBySessionID, activeAttemptID    sql.NullString
+		readyRank                                                                         sql.NullInt64
 		effectiveStatus                                                                   string
 		sequenceNo, version, unresolvedBlockerCount, isBlocked, isClaimable, priorityRank int64
 	)
@@ -311,6 +354,7 @@ func scanIssueListProjection(scanner labelScanner) (domain.IssueProjection, erro
 		&id, &sequenceNo, &issueType, &title, &description, &acceptanceCriteria,
 		&status, &priority, &parentID, &blockedReason, &version,
 		&createdBySessionID, &createdAt, &updatedAt, &closedAt, &archivedAt, &archivedBySessionID,
+		&readyRank,
 		&unresolvedBlockerCount, &isBlocked, &isClaimable, &effectiveStatus, &activeAttemptID, &priorityRank,
 	); err != nil {
 		if err == sql.ErrNoRows {
@@ -320,7 +364,7 @@ func scanIssueListProjection(scanner labelScanner) (domain.IssueProjection, erro
 	}
 	issue, err := parseIssueProjectionColumns(id, sequenceNo, issueType, title, description, acceptanceCriteria,
 		parentID, blockedReason, status, priority, version, createdBySessionID, createdAt, updatedAt,
-		closedAt, archivedAt, archivedBySessionID)
+		closedAt, archivedAt, archivedBySessionID, readyRank)
 	if err != nil {
 		return domain.IssueProjection{}, err
 	}
@@ -332,6 +376,19 @@ func scanIssueListProjection(scanner labelScanner) (domain.IssueProjection, erro
 		IsClaimable:            isClaimable != 0,
 		ActiveAttemptID:        nullableStringPointer(activeAttemptID),
 	}, nil
+}
+
+// readyRankSortKey mirrors issueReadyRankKeySQL in Go so a page boundary can be
+// encoded from the last item without a second query.
+func readyRankSortKey(item domain.IssueProjection) int64 {
+	if item.Issue.Status == domain.StatusReady && item.Issue.ReadyRank != nil {
+		return *item.Issue.ReadyRank
+	}
+	return readyRankUnranked
+}
+
+func int64Pointer(value int64) *int64 {
+	return &value
 }
 
 func loadIssueListLabels(ctx context.Context, query Queryer, items []domain.IssueProjection) error {

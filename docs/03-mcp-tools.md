@@ -131,7 +131,7 @@ The following defaults are covered by the integration gate and should be treated
 
 | Tool | Default fields or delivery | Budget |
 | --- | --- | ---: |
-| `get_issue` | standard: `id`, `display_id`, `sequence_no`, `type`, `title`, `status`, `priority`, `parent_issue_id`, `blocked_reason`, `version`, timestamps, `labels`; no bodies | 32 KiB |
+| `get_issue` | standard: `id`, `display_id`, `sequence_no`, `type`, `title`, `status`, `priority`, `ready_rank`, `parent_issue_id`, `blocked_reason`, `version`, timestamps, `labels`; no bodies | 32 KiB |
 | `get_issue_graph` | `root_issue_id`, bounded `nodes`, `edges`, `summary`, `entry_points`, truncation fields | 32 KiB for the deterministic fixture used in the integration test |
 | `get_planning_graph` | bounded `nodes`, `edges`, `entry_points`, `blocking_nodes`, `summary`, `warnings`, `truncated` | 32 KiB for the deterministic fixture used in the integration test |
 | `manage_issue_relation` | `changed`, relation fields, `affected_issues` | 32 KiB |
@@ -233,12 +233,17 @@ Input:
   "client_version": "1.2.3",
   "agent_label": null,
   "model": null,
-  "instance_key": null
+  "instance_key": null,
+  "worktree": null
 }
 ```
 
 `client_name` is required and the remaining metadata fields are optional,
-non-blank strings of at most 256 runes. The tool is mutating,
+non-blank strings of at most 256 runes, except `worktree`, which allows up to
+1024 runes because an absolute worktree path is routinely longer. `worktree`
+records the checked-out worktree this session is running in; like
+`instance_key` it is descriptive metadata, never an ownership or security
+input. The tool is mutating,
 non-idempotent, and returns `session` metadata plus
 `agent_session_handle`. The handle is shown only in this response and must be
 retained by the client; it cannot be recovered later.
@@ -821,6 +826,7 @@ Input:
   "acceptance_criteria": null,
   "status": "open",
   "priority": "medium",
+  "ready_rank": null,
   "parent_issue_id": null,
   "blocked_reason": null,
   "labels": [],
@@ -835,6 +841,9 @@ Rules:
 - `type`, `title` are required.
 - `status` defaults to `open`.
 - `priority` defaults to `medium`.
+- `ready_rank` is optional and must be between 0 and 1000000000. It sets the
+  new issue's explicit position in the READY queue (docs/02 §3.7): lower sorts
+  earlier, and it only affects listing order while the issue is `ready`.
 - `blocked_reason` is required when status is `blocked`.
 - Parent constraints are validated.
 - `idempotency_key` is optional. When supplied, it must be a non-blank string up to 128 runes. Reusing the same key with the same normalized request replays the original issue response; reusing it with a different request returns `IDEMPOTENCY_CONFLICT`.
@@ -897,6 +906,7 @@ Input:
     "type": "task",
     "priority": "high",
     "status": "ready",
+    "ready_rank": 3,
     "parent_issue_id": null,
     "blocked_reason": null,
     "labels": ["database", "concurrency"]
@@ -907,7 +917,10 @@ Input:
 }
 ```
 
-Only changed fields should be present.
+Only changed fields should be present. `ready_rank` follows the same
+absent/null/value semantics as every other nullable patch field: absent
+preserves the stored position, `null` clears it, and a value in
+`0..1000000000` replaces it (docs/02 §3.7).
 
 `idempotency_key` is optional. When supplied, it must be a non-blank string up
 to 128 runes. Reusing the same key with the same normalized request (`issue_id`,
@@ -981,6 +994,7 @@ standard (default when view is omitted)
 - all compact fields
 - status
 - priority
+- ready_rank
 - parent_issue_id
 - blocked_reason
 - created_at
@@ -1029,11 +1043,16 @@ has_more
 Deterministic ordering:
 
 ```text
+ready_rank ASC (READY issues with an explicit rank only; NULL ranks sort after)
 priority DESC
 is_claimable DESC
 sequence_no ASC
 ```
 
+`ready_rank` participates only for issues whose stored status is `ready`
+(docs/02 §3.7). An issue with no explicit rank -- and every issue that is not
+currently ready -- shares one "unranked" sort key, so a database that has never
+set a rank keeps exactly the ordering above with `ready_rank` removed.
 `view` accepts exactly two values, `compact` and `full`. `view` defaults to
 `compact` (including when the field is omitted entirely). Unknown values
 (anything other than `compact` or `full`) are rejected as an unsupported
@@ -1054,6 +1073,7 @@ title
 status
 effective_status
 priority
+ready_rank
 is_blocked
 is_claimable
 unresolved_blocker_count
@@ -1081,6 +1101,7 @@ description
 acceptance_criteria
 status
 priority
+ready_rank
 parent_issue_id
 blocked_reason
 version

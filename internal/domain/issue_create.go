@@ -11,7 +11,9 @@ import (
 // BlockedReason must be nil. An epic must not have ParentID, while a task or
 // bug may have one; storage verifies that a supplied parent is an active epic.
 // Labels are a replacement set for the new issue. Missing labels are created
-// only when CreateMissingLabels is true.
+// only when CreateMissingLabels is true. ReadyRank, when set, is the new
+// issue's explicit position in the READY queue; it is preserved regardless of
+// Status and only affects listing order while the issue is ready.
 type CreateIssueInput struct {
 	Type                Type
 	Title               string
@@ -19,6 +21,7 @@ type CreateIssueInput struct {
 	AcceptanceCriteria  *string
 	Status              Status
 	Priority            Priority
+	ReadyRank           *int64
 	ParentID            *string
 	BlockedReason       *string
 	Labels              []string
@@ -59,6 +62,9 @@ func (input CreateIssueInput) Validate() (CreateIssueInput, error) {
 	}
 	if !priority.Valid() {
 		return CreateIssueInput{}, invalidEnum("priority", string(priority))
+	}
+	if err := ValidateReadyRank("ready_rank", input.ReadyRank); err != nil {
+		return CreateIssueInput{}, err
 	}
 
 	if input.ParentID != nil {
@@ -123,6 +129,7 @@ func (input CreateIssueInput) Validate() (CreateIssueInput, error) {
 		AcceptanceCriteria:  copyString(input.AcceptanceCriteria),
 		Status:              status,
 		Priority:            priority,
+		ReadyRank:           copyInt64(input.ReadyRank),
 		ParentID:            copyString(input.ParentID),
 		BlockedReason:       copyString(input.BlockedReason),
 		Labels:              labels,
@@ -141,6 +148,7 @@ func CanonicalCreateIssueRequest(input CreateIssueInput) ([]byte, error) {
 		AcceptanceCriteria  *string  `json:"acceptance_criteria"`
 		Status              Status   `json:"status"`
 		Priority            Priority `json:"priority"`
+		ReadyRank           *int64   `json:"ready_rank"`
 		ParentID            *string  `json:"parent_id"`
 		BlockedReason       *string  `json:"blocked_reason"`
 		Labels              []string `json:"labels"`
@@ -152,6 +160,7 @@ func CanonicalCreateIssueRequest(input CreateIssueInput) ([]byte, error) {
 		AcceptanceCriteria:  copyString(input.AcceptanceCriteria),
 		Status:              input.Status,
 		Priority:            input.Priority,
+		ReadyRank:           copyInt64(input.ReadyRank),
 		ParentID:            copyString(input.ParentID),
 		BlockedReason:       copyString(input.BlockedReason),
 		Labels:              append([]string(nil), input.Labels...),
@@ -168,6 +177,14 @@ func validateOptionalText(field string, value *string, maximum int) error {
 }
 
 func copyString(value *string) *string {
+	if value == nil {
+		return nil
+	}
+	copy := *value
+	return &copy
+}
+
+func copyInt64(value *int64) *int64 {
 	if value == nil {
 		return nil
 	}

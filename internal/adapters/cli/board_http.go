@@ -15,7 +15,7 @@ import (
 	"rhizome-mcp/internal/domain"
 )
 
-const boardHTTPContentSecurityPolicy = "default-src 'none'; style-src 'unsafe-inline'; img-src 'self' data:; script-src 'unsafe-inline'; font-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'none'"
+const boardHTTPContentSecurityPolicy = "default-src 'none'; style-src 'unsafe-inline'; img-src 'self' data:; script-src 'unsafe-inline'; font-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'self'"
 
 // BoardHTTPService exposes the board and issue-detail reads used by the served board HTTP adapter.
 type BoardHTTPService interface {
@@ -24,8 +24,27 @@ type BoardHTTPService interface {
 	Search(context.Context, domain.SearchInput) (domain.SearchPage, error)
 }
 
-// NewBoardHTTPHandler serves the board as an interactive loopback-only page and JSON API.
+// NewBoardHTTPHandler serves the board as an interactive loopback-only page and
+// JSON API, read-only. POST routes are answered exactly as before this adapter
+// grew a write surface, so an embedded read-only board cannot be written to.
 func NewBoardHTTPHandler(boardService BoardHTTPService) http.Handler {
+	return newBoardHTTPHandler(boardService, newBoardWriteGate(nil))
+}
+
+// NewWritableBoardHTTPHandler serves the board plus its minimal human write
+// API: create a task, edit a task, queue a task into READY, and reorder the
+// READY column. It shares every read route with NewBoardHTTPHandler.
+//
+// The handler enforces the synchronizer token, same-origin, content-type, body
+// size, and method rules itself, but the loopback binding, the Host check, and
+// the Origin check on the request path are provided by
+// runtime.ServeHTTPServer's wrapper (docs/08). An embedder that serves this
+// handler directly must supply equivalent transport protection.
+func NewWritableBoardHTTPHandler(boardService BoardHTTPService, writeService BoardWriteService) http.Handler {
+	return newBoardHTTPHandler(boardService, newBoardWriteGate(writeService))
+}
+
+func newBoardHTTPHandler(boardService BoardHTTPService, gate *boardWriteGate) http.Handler {
 	if boardService == nil {
 		return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			writeBoardHTTPResponse(w, http.StatusServiceUnavailable, "text/plain; charset=utf-8", []byte("service unavailable"), true)
@@ -37,18 +56,26 @@ func NewBoardHTTPHandler(boardService BoardHTTPService) http.Handler {
 			writeBoardHTTPResponse(w, http.StatusBadRequest, "text/plain; charset=utf-8", []byte("bad request"), true)
 			return
 		}
-		if request.Method != http.MethodGet && request.Method != http.MethodHead {
-			w.Header().Set("Allow", "GET, HEAD")
-			writeBoardHTTPResponse(w, http.StatusMethodNotAllowed, "text/plain; charset=utf-8", []byte(http.StatusText(http.StatusMethodNotAllowed)), true)
-			return
-		}
 		path := "/"
 		if request.URL != nil && request.URL.Path != "" {
 			path = request.URL.Path
 		}
+		if request.Method == http.MethodPost {
+			if gate.serveBoardWrite(w, request, path) {
+				return
+			}
+			w.Header().Set("Allow", boardAllowedMethods(gate))
+			writeBoardHTTPResponse(w, http.StatusMethodNotAllowed, "text/plain; charset=utf-8", []byte(http.StatusText(http.StatusMethodNotAllowed)), true)
+			return
+		}
+		if request.Method != http.MethodGet && request.Method != http.MethodHead {
+			w.Header().Set("Allow", boardAllowedMethods(gate))
+			writeBoardHTTPResponse(w, http.StatusMethodNotAllowed, "text/plain; charset=utf-8", []byte(http.StatusText(http.StatusMethodNotAllowed)), true)
+			return
+		}
 		switch {
 		case path == "/":
-			serveBoardPage(w, request.Method, boardService, request.Context())
+			serveBoardPage(w, request, boardService, gate.csrfToken())
 		case path == "/api/board":
 			serveBoardAPI(w, request.Method, boardService, request.Context(), request.Header.Get("If-None-Match"))
 		case path == "/api/search":
@@ -56,7 +83,7 @@ func NewBoardHTTPHandler(boardService BoardHTTPService) http.Handler {
 		case path == "/search":
 			serveSearchPage(w, request.Method, boardService, request.Context(), request.URL)
 		case strings.HasPrefix(path, "/issues/"):
-			serveIssueDetailPage(w, request.Method, boardService, request.Context(), path)
+			serveIssueDetailPage(w, request.Method, boardService, request.Context(), path, gate.csrfToken(), request.URL)
 		case path == "/api/issues" || strings.HasPrefix(path, "/api/issues/"):
 			serveIssueDetailAPI(w, request.Method, boardService, request.Context(), request.Header.Get("If-None-Match"), path)
 		default:
@@ -65,25 +92,37 @@ func NewBoardHTTPHandler(boardService BoardHTTPService) http.Handler {
 	})
 }
 
-func serveBoardPage(w http.ResponseWriter, method string, boardService BoardHTTPService, ctx context.Context) {
-	result, err := boardService.GetBoard(ctx)
+// boardAllowedMethods is the Allow header for one handler: a read-only board
+// keeps advertising GET and HEAD only.
+func boardAllowedMethods(gate *boardWriteGate) string {
+	if gate.enabled() {
+		return "GET, HEAD, POST"
+	}
+	return "GET, HEAD"
+}
+
+func serveBoardPage(w http.ResponseWriter, request *http.Request, boardService BoardHTTPService, csrfToken string) {
+	result, err := boardService.GetBoard(request.Context())
 	if err != nil {
 		writeBoardHTTPResponse(w, http.StatusInternalServerError, "text/plain; charset=utf-8", []byte(http.StatusText(http.StatusInternalServerError)), true)
 		return
 	}
-	body, err := renderServedBoardHTML(result)
+	notice, errorCode := boardPageBanner(request.URL)
+	body, err := renderServedBoardPage(result, boardPageState{
+		Notice: notice, ErrorCode: errorCode, CSRFToken: csrfToken,
+	})
 	if err != nil {
 		writeBoardHTTPResponse(w, http.StatusInternalServerError, "text/plain; charset=utf-8", []byte(http.StatusText(http.StatusInternalServerError)), true)
 		return
 	}
-	if method == http.MethodHead {
+	if request.Method == http.MethodHead {
 		writeBoardHTTPResponse(w, http.StatusOK, "text/html; charset=utf-8", nil, true)
 		return
 	}
 	writeBoardHTTPResponse(w, http.StatusOK, "text/html; charset=utf-8", []byte(body), true)
 }
 
-func serveIssueDetailPage(w http.ResponseWriter, method string, boardService BoardHTTPService, ctx context.Context, path string) {
+func serveIssueDetailPage(w http.ResponseWriter, method string, boardService BoardHTTPService, ctx context.Context, path string, csrfToken string, requestURL *url.URL) {
 	identifier, statusCode, err := parseIssueDetailRoute(path)
 	if err != nil {
 		writeBoardHTTPResponse(w, statusCode, "text/plain; charset=utf-8", []byte(err.Error()), true)
@@ -105,7 +144,8 @@ func serveIssueDetailPage(w http.ResponseWriter, method string, boardService Boa
 		writeBoardHTTPResponse(w, http.StatusInternalServerError, "text/plain; charset=utf-8", []byte(http.StatusText(http.StatusInternalServerError)), true)
 		return
 	}
-	body, err := renderIssueDetailHTML(result)
+	notice, errorCode := boardPageBanner(requestURL)
+	body, err := renderIssueDetailHTMLWithCSRF(result, csrfToken, notice, errorCode)
 	if err != nil {
 		writeBoardHTTPResponse(w, http.StatusInternalServerError, "text/plain; charset=utf-8", []byte(http.StatusText(http.StatusInternalServerError)), true)
 		return
@@ -393,12 +433,12 @@ func serveBoardAPI(w http.ResponseWriter, method string, boardService BoardHTTPS
 }
 
 func semanticBoardETag(result domain.BoardResult) string {
-	payload := boardETagPayload{StatusCounts: make([]boardETagStatusCount, len(result.StatusCounts)), ActiveAttempts: make([]boardETagActiveAttempt, len(result.ActiveAttempts)), AttemptGates: boardAttemptGatesFromDomain(result.AttemptGates), ActiveReservations: make([]boardETagReservation, len(result.ActiveReservations)), BlockedIssues: make([]IssueSummary, len(result.BlockedIssues)), ReviewRequests: make([]boardETagReviewRequest, len(result.ReviewRequests)), PlanningGraph: boardETagGraph{Nodes: make([]IssueSummary, len(result.PlanningGraph.Nodes)), Edges: result.PlanningGraph.Edges, EntryPoints: result.PlanningGraph.EntryPoints, BlockingNodes: result.PlanningGraph.BlockingNodes, Summary: result.PlanningGraph.Summary, Truncated: result.PlanningGraph.Truncated, RetainedNodeCount: len(result.PlanningGraph.Nodes)}, Truncation: BoardTruncation{BlockedIssues: result.Truncation.BlockedIssues, ActiveAttempts: result.Truncation.ActiveAttempts, ActiveReservations: result.Truncation.ActiveReservations, ReviewRequests: result.Truncation.ReviewRequests}}
+	payload := boardETagPayload{StatusCounts: make([]boardETagStatusCount, len(result.StatusCounts)), ActiveAttempts: make([]boardETagActiveAttempt, len(result.ActiveAttempts)), AttemptGates: boardAttemptGatesFromDomain(result.AttemptGates), ActiveReservations: make([]boardETagReservation, len(result.ActiveReservations)), BlockedIssues: make([]IssueSummary, len(result.BlockedIssues)), ReviewRequests: make([]boardETagReviewRequest, len(result.ReviewRequests)), PlanningGraph: boardETagGraph{Nodes: make([]IssueSummary, len(result.PlanningGraph.Nodes)), Edges: result.PlanningGraph.Edges, EntryPoints: result.PlanningGraph.EntryPoints, BlockingNodes: result.PlanningGraph.BlockingNodes, Summary: result.PlanningGraph.Summary, Truncated: result.PlanningGraph.Truncated, RetainedNodeCount: len(result.PlanningGraph.Nodes)}, Truncation: BoardTruncation{BlockedIssues: result.Truncation.BlockedIssues, ActiveAttempts: result.Truncation.ActiveAttempts, ActiveReservations: result.Truncation.ActiveReservations, ReviewRequests: result.Truncation.ReviewRequests}, Workflow: boardWorkflowFromDomain(result.Workflow)}
 	for index, item := range result.StatusCounts {
 		payload.StatusCounts[index] = boardETagStatusCount{EffectiveStatus: string(item.EffectiveStatus), Count: item.Count}
 	}
 	for index, item := range result.ActiveAttempts {
-		payload.ActiveAttempts[index] = boardETagActiveAttempt{AttemptID: item.AttemptID, IssueID: item.IssueID, IssueDisplayID: item.IssueDisplayID, IssueTitle: item.IssueTitle, Kind: string(item.Kind), SessionID: copyOptionalString(item.SessionID), SessionLabel: copyOptionalString(item.SessionLabel), StartedAt: item.StartedAt.UTC(), LeaseExpiresAt: item.LeaseExpiresAt.UTC()}
+		payload.ActiveAttempts[index] = boardETagActiveAttempt{AttemptID: item.AttemptID, IssueID: item.IssueID, IssueDisplayID: item.IssueDisplayID, IssueTitle: item.IssueTitle, Kind: string(item.Kind), SessionID: copyOptionalString(item.SessionID), SessionLabel: copyOptionalString(item.SessionLabel), SessionInstanceKey: copyOptionalString(item.SessionInstanceKey), SessionClientName: copyOptionalString(item.SessionClientName), SessionModel: copyOptionalString(item.SessionModel), SessionWorktree: copyOptionalString(item.SessionWorktree), StartedAt: item.StartedAt.UTC(), LeaseExpiresAt: item.LeaseExpiresAt.UTC()}
 	}
 	for index, item := range result.ActiveReservations {
 		payload.ActiveReservations[index] = boardETagReservation{ID: item.ID, IssueID: item.IssueID, AttemptID: item.AttemptID, Kind: string(item.Kind), DisplayValue: item.DisplayValue, Status: string(item.Status), Version: item.Version}
@@ -453,6 +493,9 @@ type boardETagPayload struct {
 	ReviewRequests     []boardETagReviewRequest `json:"review_requests"`
 	PlanningGraph      boardETagGraph           `json:"planning_graph"`
 	Truncation         BoardTruncation          `json:"truncation"`
+	// Workflow participates in the semantic ETag so a card moving between
+	// columns reaches a polling client even when nothing else changed.
+	Workflow BoardWorkflow `json:"workflow"`
 }
 
 type boardETagReservation struct {
@@ -471,15 +514,19 @@ type boardETagStatusCount struct {
 }
 
 type boardETagActiveAttempt struct {
-	AttemptID      string    `json:"attempt_id"`
-	IssueID        string    `json:"issue_id"`
-	IssueDisplayID string    `json:"issue_display_id"`
-	IssueTitle     string    `json:"issue_title"`
-	Kind           string    `json:"kind"`
-	SessionID      *string   `json:"session_id,omitempty"`
-	SessionLabel   *string   `json:"session_label,omitempty"`
-	StartedAt      time.Time `json:"started_at"`
-	LeaseExpiresAt time.Time `json:"lease_expires_at"`
+	AttemptID          string    `json:"attempt_id"`
+	IssueID            string    `json:"issue_id"`
+	IssueDisplayID     string    `json:"issue_display_id"`
+	IssueTitle         string    `json:"issue_title"`
+	Kind               string    `json:"kind"`
+	SessionID          *string   `json:"session_id,omitempty"`
+	SessionLabel       *string   `json:"session_label,omitempty"`
+	SessionInstanceKey *string   `json:"session_instance_key,omitempty"`
+	SessionClientName  *string   `json:"session_client_name,omitempty"`
+	SessionModel       *string   `json:"session_model,omitempty"`
+	SessionWorktree    *string   `json:"session_worktree,omitempty"`
+	StartedAt          time.Time `json:"started_at"`
+	LeaseExpiresAt     time.Time `json:"lease_expires_at"`
 }
 
 type boardETagReviewRequest struct {

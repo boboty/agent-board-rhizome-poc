@@ -95,7 +95,7 @@ func newBoardReservationLifecycleFixture(t *testing.T) (*application.BoardServic
 	if err != nil {
 		t.Fatal(err)
 	}
-	boardService, err := application.NewBoardService(issueService, attemptService, reservationService, reviewService, graphService, workflowPolicyService, source)
+	boardService, err := application.NewBoardService(issueService, attemptService, reservationService, reviewService, graphService, workflowPolicyService, nil, source)
 	if err != nil {
 		t.Fatal(err)
 	}

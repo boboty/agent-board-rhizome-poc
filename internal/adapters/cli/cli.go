@@ -146,18 +146,18 @@ type ConnectHandler func(context.Context, string, bool, bool) error
 
 // CLI adapts CLI command parsing and output rendering over application services.
 type CLI struct {
-	services            Services
-	stdout              io.Writer
-	stderr              io.Writer
-	initHandler         InitHandler
-	serveHandler        ServeHandler
-	boardServeHandler   BoardServeHandler
-	backupHandler       BackupHandler
-	doctorHandler       DoctorHandler
-	connectHandler      ConnectHandler
-	projectsListHandler  ProjectsListHandler
+	services               Services
+	stdout                 io.Writer
+	stderr                 io.Writer
+	initHandler            InitHandler
+	serveHandler           ServeHandler
+	boardServeHandler      BoardServeHandler
+	backupHandler          BackupHandler
+	doctorHandler          DoctorHandler
+	connectHandler         ConnectHandler
+	projectsListHandler    ProjectsListHandler
 	projectsMigrateHandler ProjectsMigrateHandler
-	appVersion           string
+	appVersion             string
 }
 
 // New constructs a CLI adapter around application services and output writers.
@@ -1195,15 +1195,16 @@ func (c *CLI) writeBoardTable(result domain.BoardResult) error {
 		builder.WriteString(fmt.Sprintf("%s\t%d\n", count.EffectiveStatus, count.Count))
 	}
 
+	writeBoardWorkflowTable(&builder, result.Workflow)
+
 	builder.WriteString("\nactive_attempts\n")
-	builder.WriteString("attempt_id\tissue\tkind\tsession_label\tlease_expires_at\n")
+	builder.WriteString("attempt_id\tissue\tkind\tsession_label\tsession_instance_key\tsession_client_name\tsession_model\tsession_worktree\tlease_expires_at\n")
 	for _, attempt := range result.ActiveAttempts {
-		label := ""
-		if attempt.SessionLabel != nil {
-			label = *attempt.SessionLabel
-		}
-		builder.WriteString(fmt.Sprintf("%s\t%s\t%s\t%s\t%s\n",
-			attempt.AttemptID, attempt.IssueDisplayID, attempt.Kind, escapeTableValue(label), attempt.LeaseExpiresAt.Format(time.RFC3339Nano)))
+		builder.WriteString(fmt.Sprintf("%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+			attempt.AttemptID, attempt.IssueDisplayID, attempt.Kind,
+			escapeTableValue(optionalTableValue(attempt.SessionLabel)), escapeTableValue(optionalTableValue(attempt.SessionInstanceKey)),
+			escapeTableValue(optionalTableValue(attempt.SessionClientName)), escapeTableValue(optionalTableValue(attempt.SessionModel)),
+			escapeTableValue(optionalTableValue(attempt.SessionWorktree)), attempt.LeaseExpiresAt.Format(time.RFC3339Nano)))
 	}
 	if result.Truncation.ActiveAttempts {
 		builder.WriteString(fmt.Sprintf("truncated\ttrue\t(first %d shown)\n", domain.MaxBoardCollectionLimit))
@@ -1438,6 +1439,7 @@ type IssueSummary struct {
 	AcceptanceCriteria     *string    `json:"acceptance_criteria,omitempty"`
 	Status                 string     `json:"status"`
 	Priority               string     `json:"priority"`
+	ReadyRank              *int64     `json:"ready_rank,omitempty"`
 	ParentIssueID          *string    `json:"parent_issue_id,omitempty"`
 	BlockedReason          *string    `json:"blocked_reason,omitempty"`
 	Version                int64      `json:"version"`
@@ -1483,6 +1485,7 @@ func issueFromDomain(issue domain.Issue) IssueSummary {
 		AcceptanceCriteria:  copyOptionalString(issue.AcceptanceCriteria),
 		Status:              string(issue.Status),
 		Priority:            string(issue.Priority),
+		ReadyRank:           copyOptionalInt64(issue.ReadyRank),
 		ParentIssueID:       copyOptionalString(issue.ParentID),
 		BlockedReason:       copyOptionalString(issue.BlockedReason),
 		Version:             issue.Version,
@@ -1555,6 +1558,10 @@ type BoardResponse struct {
 	ReviewRequests     []BoardReviewRequest `json:"review_requests"`
 	PlanningGraph      BoardGraph           `json:"planning_graph"`
 	Truncation         BoardTruncation      `json:"truncation"`
+	// Workflow is the Agent Board Kanban projection. It is additive: the
+	// collections above keep their existing meaning, and a client that does
+	// not know this field can ignore it.
+	Workflow BoardWorkflow `json:"workflow"`
 }
 
 // BoardTruncation reports, per bounded board collection, whether that
@@ -1575,17 +1582,25 @@ type BoardStatusCount struct {
 	Count           int64  `json:"count"`
 }
 
-// BoardActiveAttempt is a stable CLI projection of one currently leased attempt.
+// BoardActiveAttempt is a stable CLI projection of one currently leased
+// attempt, including the attribution metadata of the session that claimed it
+// (when one did) so the board can show who is running the work. Every
+// session_* field is optional; a claim made without an agent session handle
+// omits all of them.
 type BoardActiveAttempt struct {
-	AttemptID      string    `json:"attempt_id"`
-	IssueID        string    `json:"issue_id"`
-	IssueDisplayID string    `json:"issue_display_id"`
-	IssueTitle     string    `json:"issue_title"`
-	Kind           string    `json:"kind"`
-	SessionID      *string   `json:"session_id,omitempty"`
-	SessionLabel   *string   `json:"session_label,omitempty"`
-	StartedAt      time.Time `json:"started_at"`
-	LeaseExpiresAt time.Time `json:"lease_expires_at"`
+	AttemptID          string    `json:"attempt_id"`
+	IssueID            string    `json:"issue_id"`
+	IssueDisplayID     string    `json:"issue_display_id"`
+	IssueTitle         string    `json:"issue_title"`
+	Kind               string    `json:"kind"`
+	SessionID          *string   `json:"session_id,omitempty"`
+	SessionLabel       *string   `json:"session_label,omitempty"`
+	SessionInstanceKey *string   `json:"session_instance_key,omitempty"`
+	SessionClientName  *string   `json:"session_client_name,omitempty"`
+	SessionModel       *string   `json:"session_model,omitempty"`
+	SessionWorktree    *string   `json:"session_worktree,omitempty"`
+	StartedAt          time.Time `json:"started_at"`
+	LeaseExpiresAt     time.Time `json:"lease_expires_at"`
 }
 
 // BoardAttemptGates is a stable CLI projection of one active attempt's
@@ -1661,6 +1676,8 @@ func boardResponseFromDomain(result domain.BoardResult) BoardResponse {
 		attempts[index] = BoardActiveAttempt{
 			AttemptID: item.AttemptID, IssueID: item.IssueID, IssueDisplayID: item.IssueDisplayID, IssueTitle: item.IssueTitle,
 			Kind: string(item.Kind), SessionID: copyOptionalString(item.SessionID), SessionLabel: copyOptionalString(item.SessionLabel),
+			SessionInstanceKey: copyOptionalString(item.SessionInstanceKey), SessionClientName: copyOptionalString(item.SessionClientName),
+			SessionModel: copyOptionalString(item.SessionModel), SessionWorktree: copyOptionalString(item.SessionWorktree),
 			StartedAt: item.StartedAt.UTC(), LeaseExpiresAt: item.LeaseExpiresAt.UTC(),
 		}
 	}
@@ -1710,6 +1727,7 @@ func boardResponseFromDomain(result domain.BoardResult) BoardResponse {
 			ActiveReservations: result.Truncation.ActiveReservations,
 			ReviewRequests:     result.Truncation.ReviewRequests,
 		},
+		Workflow: boardWorkflowFromDomain(result.Workflow),
 	}
 }
 
@@ -1801,6 +1819,14 @@ func copyOptionalString(value *string) *string {
 	return &copy
 }
 
+func copyOptionalInt64(value *int64) *int64 {
+	if value == nil {
+		return nil
+	}
+	copy := *value
+	return &copy
+}
+
 func copyOptionalTime(value *time.Time) *time.Time {
 	if value == nil {
 		return nil
@@ -1820,6 +1846,16 @@ func escapeTableValue(value string) string {
 	value = strings.ReplaceAll(value, "\n", " ")
 	value = strings.ReplaceAll(value, "\t", " ")
 	return value
+}
+
+// optionalTableValue renders an optional board cell. A missing session
+// metadata field is an empty TSV cell, not an error: attempts claimed without
+// an agent session are normal.
+func optionalTableValue(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
 }
 
 func renderMermaid(result domain.GraphResult) string {

@@ -26,11 +26,17 @@ type BoardService struct {
 	reviewService      *ReviewService
 	graphService       *GraphService
 	gateService        issueGateSummaryGetter
+	// deliveryReferences is optional: when it is nil the workflow projection
+	// still renders every card, just without commit/branch/pull-request
+	// references. A delivery reference is displayed when it exists, so its
+	// reader is not a construction requirement.
+	deliveryReferences boardDeliveryReferenceReader
 	clock              clock.Clock
 }
 
 // NewBoardService composes the board use case from the services it aggregates.
-func NewBoardService(issueService *IssueService, attemptService *AttemptService, reservationService *ReservationService, reviewService *ReviewService, graphService *GraphService, gateService issueGateSummaryGetter, source clock.Clock) (*BoardService, error) {
+// deliveryReferences may be nil; every other dependency is required.
+func NewBoardService(issueService *IssueService, attemptService *AttemptService, reservationService *ReservationService, reviewService *ReviewService, graphService *GraphService, gateService issueGateSummaryGetter, deliveryReferences boardDeliveryReferenceReader, source clock.Clock) (*BoardService, error) {
 	if issueService == nil || attemptService == nil || reservationService == nil || reviewService == nil || graphService == nil || gateService == nil {
 		return nil, domain.NewError(domain.CodeInvalidArgument, "board dependencies are required", false)
 	}
@@ -39,7 +45,8 @@ func NewBoardService(issueService *IssueService, attemptService *AttemptService,
 	}
 	return &BoardService{
 		issueService: issueService, attemptService: attemptService, reservationService: reservationService,
-		reviewService: reviewService, graphService: graphService, gateService: gateService, clock: source,
+		reviewService: reviewService, graphService: graphService, gateService: gateService,
+		deliveryReferences: deliveryReferences, clock: source,
 	}, nil
 }
 
@@ -123,6 +130,18 @@ func (service *BoardService) GetBoard(ctx context.Context) (domain.BoardResult, 
 		return domain.BoardResult{}, err
 	}
 
+	// The workflow projection is derived from the same bounded reads as the
+	// rest of the board, so its cards can never disagree with the collections
+	// beside them. It adds no stored state of its own.
+	workflowSources, err := service.collectBoardWorkflowSources(ctx, reviewRequests)
+	if err != nil {
+		return domain.BoardResult{}, err
+	}
+	workflow, err := service.buildBoardWorkflow(ctx, workflowSources, activeAttempts)
+	if err != nil {
+		return domain.BoardResult{}, err
+	}
+
 	return domain.BoardResult{
 		GeneratedAt:        service.clock.Now().UTC(),
 		StatusCounts:       statusCounts,
@@ -138,7 +157,58 @@ func (service *BoardService) GetBoard(ctx context.Context) (domain.BoardResult, 
 			ActiveReservations: reservationPage.HasMore,
 			ReviewRequests:     reviewPage.HasMore,
 		},
+		Workflow: workflow,
 	}, nil
+}
+
+// ReadyQueueSnapshot is the READY column exactly as the board displays it:
+// the cards the workflow projection placed in READY, in display order, plus
+// whether the underlying read was cut at the collection limit.
+type ReadyQueueSnapshot struct {
+	Cards     []domain.BoardWorkflowCard
+	Truncated bool
+}
+
+// ReadyQueue returns the issues currently shown in the READY column, using the
+// same bounded reads and the same placement rules as GetBoard. A reorder that
+// plans from this snapshot can therefore only touch cards the operator
+// actually saw: a stored-ready issue that is displayed as IN PROGRESS because
+// it has an active work attempt is not part of the queue.
+func (service *BoardService) ReadyQueue(ctx context.Context) (ReadyQueueSnapshot, error) {
+	openStatus := string(domain.ReviewRequestStatusOpen)
+	reviewPage, err := service.reviewService.ListReviewRequests(ctx, ListReviewRequestsInput{
+		Status: &openStatus,
+		Limit:  domain.MaxBoardCollectionLimit,
+	})
+	if err != nil {
+		return ReadyQueueSnapshot{}, err
+	}
+	reviewRequests := make([]domain.ReviewRequest, len(reviewPage.Items))
+	for index, item := range reviewPage.Items {
+		reviewRequests[index] = item.Request
+	}
+	activeAttemptList, err := service.attemptService.ListActiveAttempts(ctx, domain.MaxBoardCollectionLimit)
+	if err != nil {
+		return ReadyQueueSnapshot{}, err
+	}
+	sources, err := service.collectBoardWorkflowSources(ctx, reviewRequests)
+	if err != nil {
+		return ReadyQueueSnapshot{}, err
+	}
+	projection, err := service.buildBoardWorkflow(ctx, sources, activeAttemptList.Items)
+	if err != nil {
+		return ReadyQueueSnapshot{}, err
+	}
+	// A cut active-attempt read can hide the attempt that would place a
+	// stored-ready issue in IN PROGRESS, which would make the plan wrong, so it
+	// disables reordering exactly like a cut READY read.
+	snapshot := ReadyQueueSnapshot{Truncated: projection.Truncation.Ready || activeAttemptList.HasMore}
+	for _, card := range projection.Cards {
+		if card.Column == domain.BoardWorkflowColumnReady {
+			snapshot.Cards = append(snapshot.Cards, card)
+		}
+	}
+	return snapshot, nil
 }
 
 // filterReservationsByActiveAttempts drops any reservation whose owning

@@ -95,10 +95,10 @@ func TestBoardHTMLReportsEachCollectionTruncation(t *testing.T) {
 		truncation domain.BoardTruncation
 		note       string
 	}{
-		"active attempts":     {domain.BoardTruncation{ActiveAttempts: true}, "Showing the first 100 active attempts; more exist."},
-		"active reservations": {domain.BoardTruncation{ActiveReservations: true}, "Showing the first 100 resource reservations; more exist."},
-		"blocked issues":      {domain.BoardTruncation{BlockedIssues: true}, "Showing the first 100 blocked issues; more exist."},
-		"review requests":     {domain.BoardTruncation{ReviewRequests: true}, "Showing the first 100 open review requests; more exist."},
+		"active attempts":     {domain.BoardTruncation{ActiveAttempts: true}, "仅显示前 100 个执行中任务"},
+		"active reservations": {domain.BoardTruncation{ActiveReservations: true}, "仅显示前 100 个资源预留"},
+		"blocked issues":      {domain.BoardTruncation{BlockedIssues: true}, "仅显示前 100 个阻塞任务"},
+		"review requests":     {domain.BoardTruncation{ReviewRequests: true}, "仅显示前 100 个验收请求"},
 	}
 
 	renderers := map[string]func(domain.BoardResult) (string, error){

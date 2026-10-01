@@ -45,6 +45,7 @@ Issue
   acceptance_criteria     markdown nullable
   status                  open | ready | blocked | review | done | cancelled
   priority                low | medium | high | critical
+  ready_rank              integer nullable
   parent_id               ULID nullable
   blocked_reason          string nullable
   version                 integer
@@ -182,6 +183,30 @@ Append-only operations do not require issue version:
 - checkpoints;
 - events.
 
+### 3.7. READY queue position
+
+`ready_rank` is an optional integer in `0..1000000000` giving an issue an
+explicit position in the human-facing READY queue introduced by Agent Board
+V0.1.
+
+- A lower rank sorts earlier. `NULL` means "no explicit position".
+- It is advisory metadata stored on the issue, not a separate queue entity:
+  it is set through the ordinary create/update paths, bumps `version`, and
+  is preserved regardless of status.
+- Listing only consults it while the issue's stored status is `ready`, so a
+  rank kept across `blocked`/`review` rework resumes its slot when the issue
+  returns to the queue without ever moving a task that is not ready.
+- Ordering is deterministic: ranked READY issues first in ascending rank
+  order, then every other issue in the existing priority/claimability/
+  sequence order. A database that has never set a rank therefore keeps
+  exactly its previous ordering.
+- Scope boundary: `ready_rank` is currently reachable only through the
+  ordinary create/update paths and the MCP/CLI read projections. It is not
+  part of the logical interchange format (`docs/07`), so an
+  export/import round trip resets it to NULL, and batch planning
+  (`validate_issue_plan`/`apply_issue_plan`) cannot set it yet. Both are
+  additive follow-ups, not invariants this field depends on.
+
 ## 4. AgentSession
 
 ```text
@@ -193,6 +218,7 @@ AgentSession
   agent_label        string nullable
   model              string nullable
   instance_key       string nullable
+  worktree           string nullable
   started_at         timestamp
   last_seen_at       timestamp
   ended_at           timestamp nullable
@@ -230,6 +256,35 @@ Rules:
 - A call that omits a handle remains compatible and persists NULL attribution.
   A supplied handle must resolve to an active session before any business write
   starts; an invalid handle causes no partial project or audit writes.
+- `worktree` is the optional checked-out worktree path the session reports at
+  creation (at most 1024 runes, trimmed, non-blank when supplied). It is
+  descriptive metadata for human-facing runtime display; it is never used for
+  routing, ownership, or security, and a client that reports none stays valid.
+
+### 4.1. `instance_key` and stable actor identity
+
+`instance_key` is the existing stable execution-instance key: an optional,
+client-supplied, non-blank string of at most 256 runes identifying one
+particular client instance (a harness process, a worktree-bound worker) across
+the sessions it opens. It is the intended anchor for "who or what is executing
+this task" in Agent Board V0.1, so no separate `actor_id` is introduced.
+
+Its current semantics are suitable for *attribution and display* but not for
+*enforcement*:
+
+- suitable: it is durable on the session row, survives reconnects, and is
+  already returned alongside the session, so a UI can label the active
+  executor instance;
+- not suitable as an enforced identity: it is optional, not unique, not
+  validated against any registry, has no lifecycle of its own, and two
+  sessions may legitimately share one key or omit it entirely. There is
+  therefore no database guarantee that it identifies exactly one actor.
+
+If a later feature needs an enforceable actor identity (for example "return RC
+to the original developer" or per-actor quotas), it must add an explicit
+registered actor with a uniqueness rule rather than overloading this advisory
+field. Until then, consumers must treat `instance_key` as a display key that
+is absent or shared.
 
 There is no permanent `Agent` entity in the first version.
 

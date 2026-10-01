@@ -6,7 +6,7 @@ Do not include these in the first version unless required to satisfy a core inva
 
 ### User experience
 
-- hosted or authenticated web UI; multi-user web UI; browser write operations (loopback-only read-only local status board is shipped; see docs/13);
+- hosted or authenticated web UI; multi-user web UI; browser write operations beyond the four minimal same-origin task actions shipped with the loopback status board (create, edit, queue into READY, reorder READY; see docs/13 §11);
 - desktop UI;
 - terminal UI;
 - hosted or interactive visual dashboard; multi-user analytics dashboard;

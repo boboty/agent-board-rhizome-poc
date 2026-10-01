@@ -539,9 +539,13 @@ func (repository *AttemptRepository) ExpireAttempts(ctx context.Context, command
 
 // ListActiveAttempts returns a bounded, project-wide projection of currently
 // active (leased, unexpired) attempts joined with their issue and, when
-// present, the claiming session's label. The result is capped at command.Limit
-// regardless of how many issues or attempts exist. HasMore is set when more
-// results were available than the limit, mirroring domain.IssueList.
+// present, the claiming session's attribution metadata (label, instance key,
+// client name, model, worktree) for the board's "who is running this"
+// display. Every session field is nullable because an attempt may be claimed
+// without an explicit agent session handle; the attempt still appears. The
+// result is capped at command.Limit regardless of how many issues or attempts
+// exist. HasMore is set when more results were available than the limit,
+// mirroring domain.IssueList.
 func (repository *AttemptRepository) ListActiveAttempts(ctx context.Context, command ports.ListActiveAttemptsCommand) (domain.ActiveAttemptList, error) {
 	effectiveLimit := command.Limit
 	if effectiveLimit <= 0 || effectiveLimit > domain.MaxBoardCollectionLimit {
@@ -551,7 +555,8 @@ func (repository *AttemptRepository) ListActiveAttempts(ctx context.Context, com
 	var items []domain.ActiveAttemptSummary
 	err := repository.db.Read(ctx, func(ctx context.Context, query Queryer) error {
 		rows, err := query.QueryContext(ctx, `SELECT wa.id, wa.issue_id, i.sequence_no, i.title, wa.kind,
-				wa.session_id, s.agent_label, wa.started_at, wa.lease_expires_at
+				wa.session_id, s.agent_label, s.instance_key, s.client_name, s.model, s.worktree,
+				wa.started_at, wa.lease_expires_at
 			FROM work_attempts AS wa
 			JOIN issues AS i ON i.id = wa.issue_id
 			LEFT JOIN agent_sessions AS s ON s.id = wa.session_id
@@ -564,11 +569,12 @@ func (repository *AttemptRepository) ListActiveAttempts(ctx context.Context, com
 		defer rows.Close()
 		for rows.Next() {
 			var (
-				id, issueID, title, kindText, startedAt, leaseExpiresAt string
-				sequenceNo                                              int64
-				sessionID, agentLabel                                   sql.NullString
+				id, issueID, title, kindText, startedAt, leaseExpiresAt         string
+				sequenceNo                                                      int64
+				sessionID, agentLabel, instanceKey, clientName, model, worktree sql.NullString
 			)
-			if err := rows.Scan(&id, &issueID, &sequenceNo, &title, &kindText, &sessionID, &agentLabel, &startedAt, &leaseExpiresAt); err != nil {
+			if err := rows.Scan(&id, &issueID, &sequenceNo, &title, &kindText, &sessionID, &agentLabel,
+				&instanceKey, &clientName, &model, &worktree, &startedAt, &leaseExpiresAt); err != nil {
 				return domain.WrapError(err, domain.CodeStorageCorrupt, "stored active attempt projection is invalid", false)
 			}
 			started, err := parseIssueTimestamp("started_at", startedAt)
@@ -580,15 +586,19 @@ func (repository *AttemptRepository) ListActiveAttempts(ctx context.Context, com
 				return err
 			}
 			items = append(items, domain.ActiveAttemptSummary{
-				AttemptID:      id,
-				IssueID:        issueID,
-				IssueDisplayID: fmt.Sprintf("ISSUE-%d", sequenceNo),
-				IssueTitle:     title,
-				Kind:           domain.AttemptKind(kindText),
-				SessionID:      nullableStringScan(sessionID),
-				SessionLabel:   nullableStringScan(agentLabel),
-				StartedAt:      started,
-				LeaseExpiresAt: leaseExpires,
+				AttemptID:          id,
+				IssueID:            issueID,
+				IssueDisplayID:     fmt.Sprintf("ISSUE-%d", sequenceNo),
+				IssueTitle:         title,
+				Kind:               domain.AttemptKind(kindText),
+				SessionID:          nullableStringScan(sessionID),
+				SessionLabel:       nullableStringScan(agentLabel),
+				SessionInstanceKey: nullableStringScan(instanceKey),
+				SessionClientName:  nullableStringScan(clientName),
+				SessionModel:       nullableStringScan(model),
+				SessionWorktree:    nullableStringScan(worktree),
+				StartedAt:          started,
+				LeaseExpiresAt:     leaseExpires,
 			})
 		}
 		return rows.Err()

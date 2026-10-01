@@ -317,7 +317,7 @@ func TestIntegrationBoardServe(t *testing.T) {
 	if got := response.Header.Get("Cache-Control"); got != "no-store" {
 		t.Fatalf("board page cache control = %q", got)
 	}
-	if !strings.Contains(string(body), "Rhizome status board") {
+	if !strings.Contains(string(body), "Agent Board") {
 		t.Fatalf("board page body missing heading: %s", body)
 	}
 
@@ -435,20 +435,36 @@ func TestIntegrationBoardServe(t *testing.T) {
 		t.Fatalf("board api payload missing status counts: %s", apiBody)
 	}
 
-	postRequest, err := http.NewRequest(http.MethodPost, endpoint, nil)
+	// AB-4: the served board accepts POST writes, so an un-tokened POST is a
+	// CSRF refusal rather than a method error, while other methods still report
+	// the full Allow set.
+	postRequest, err := http.NewRequest(http.MethodPost, endpoint, strings.NewReader("title=hostile"))
 	if err != nil {
 		t.Fatalf("construct POST request: %v", err)
 	}
+	postRequest.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	postResponse, err := client.Do(postRequest)
 	if err != nil {
 		t.Fatalf("send POST request: %v", err)
 	}
 	postResponse.Body.Close()
-	if postResponse.StatusCode != http.StatusMethodNotAllowed {
-		t.Fatalf("POST status = %d, want %d", postResponse.StatusCode, http.StatusMethodNotAllowed)
+	if postResponse.StatusCode != http.StatusForbidden {
+		t.Fatalf("unauthenticated POST status = %d, want %d", postResponse.StatusCode, http.StatusForbidden)
 	}
-	if got := postResponse.Header.Get("Allow"); got != "GET, HEAD" {
-		t.Fatalf("POST allow header = %q, want %q", got, "GET, HEAD")
+	putRequest, err := http.NewRequest(http.MethodPut, endpoint, nil)
+	if err != nil {
+		t.Fatalf("construct PUT request: %v", err)
+	}
+	putResponse, err := client.Do(putRequest)
+	if err != nil {
+		t.Fatalf("send PUT request: %v", err)
+	}
+	putResponse.Body.Close()
+	if putResponse.StatusCode != http.StatusMethodNotAllowed {
+		t.Fatalf("PUT status = %d, want %d", putResponse.StatusCode, http.StatusMethodNotAllowed)
+	}
+	if got := putResponse.Header.Get("Allow"); got != "GET, HEAD, POST" {
+		t.Fatalf("PUT allow header = %q, want %q", got, "GET, HEAD, POST")
 	}
 
 	hostRequest, err := http.NewRequest(http.MethodGet, endpoint, nil)

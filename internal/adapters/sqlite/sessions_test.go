@@ -173,6 +173,66 @@ func TestAgentSessionRepositoryConcurrentTouchAndEndHasValidTerminalState(t *tes
 	}
 }
 
+func TestAgentSessionRepositoryPersistsWorktreeAcrossReopen(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "sessions.db")
+	db := openSessionTestDBWithoutCleanup(t, path)
+	repository, err := sqlite.NewAgentSessionRepository(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	start := time.Date(2026, 7, 14, 10, 0, 0, 0, time.UTC)
+	worktree := "  /Users/dev/worktrees/AB-1  "
+	instance := "worker-1"
+	created, err := repository.CreateAgentSession(context.Background(), ports.CreateAgentSessionCommand{Session: domain.AgentSession{
+		ID: sessionTestID, ClientName: "codex", InstanceKey: &instance, Worktree: &worktree,
+		StartedAt: start, LastSeenAt: start,
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if created.Worktree == nil || *created.Worktree != "/Users/dev/worktrees/AB-1" {
+		t.Fatalf("created worktree = %v", created.Worktree)
+	}
+	if err := db.Close(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	db = openSessionTestDB(t, path)
+	repository, err = sqlite.NewAgentSessionRepository(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reloaded, err := repository.TouchAgentSession(context.Background(), ports.TouchAgentSessionCommand{
+		SessionID: sessionTestID, OccurredAt: start.Add(time.Minute),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reloaded.Worktree == nil || *reloaded.Worktree != "/Users/dev/worktrees/AB-1" {
+		t.Fatalf("reloaded worktree = %v, want the persisted path", reloaded.Worktree)
+	}
+	if reloaded.InstanceKey == nil || *reloaded.InstanceKey != "worker-1" {
+		t.Fatalf("reloaded instance_key = %v, want worker-1", reloaded.InstanceKey)
+	}
+
+	// A session that reports no worktree stays valid and reads back NULL.
+	const otherSessionID = "01ARZ3NDEKTSV4RRFFQ69G5FAW"
+	if _, err := repository.CreateAgentSession(context.Background(), ports.CreateAgentSessionCommand{Session: domain.AgentSession{
+		ID: otherSessionID, ClientName: "claude", StartedAt: start, LastSeenAt: start,
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	withoutWorktree, err := repository.TouchAgentSession(context.Background(), ports.TouchAgentSessionCommand{
+		SessionID: otherSessionID, OccurredAt: start.Add(2 * time.Minute),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if withoutWorktree.Worktree != nil {
+		t.Fatalf("worktree = %v, want nil", *withoutWorktree.Worktree)
+	}
+}
+
 func openSessionTestDB(t *testing.T, path string) *sqlite.DB {
 	t.Helper()
 	db := openSessionTestDBWithoutCleanup(t, path)

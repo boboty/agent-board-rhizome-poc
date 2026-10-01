@@ -1,0 +1,97 @@
+{{define "boardWorkflowSection"}}
+{{$wf := .Workflow}}
+{{$ui := .UI}}
+<div class="board-columns">
+{{range $wf.Columns}}
+<div class="board-col" data-column="{{.Column}}">
+<h3 class="board-col-heading">{{if eq .Column "ready"}}{{$ui.ColReady}}{{else if eq .Column "in_progress"}}{{$ui.ColInProgress}}{{else if eq .Column "done"}}{{$ui.ColDone}}{{else if eq .Column "blocked"}}{{$ui.ColBlocked}}{{else}}{{.Title}}{{end}} <span class="board-col-count">{{.Count}}</span></h3>
+{{if .IsEmpty}}<div class="board-empty">{{$ui.NoCards}}</div>{{else}}
+<div class="board-col-cards">
+{{range .Cards}}
+<div class="board-card{{if .HasBlockedReason}} board-card-blocked{{end}}" data-issue="{{.IssueLabel}}">
+  <div class="board-card-head">
+    {{if .HasIssueLink}}<a class="board-card-id" href="{{.IssueHref}}">{{.IssueLabel}}</a>{{else}}<span class="board-card-id">{{.IssueLabel}}</span>{{end}}
+    <span class="board-card-priority{{if eq .Priority "high"}} board-card-priority-high{{end}}{{if eq .Priority "urgent"}} board-card-priority-urgent{{end}}">{{.Priority}}</span>
+  </div>
+  <div class="board-card-title">{{.Title}}</div>
+
+  {{if .HasBlockedReason}}
+  <div class="board-card-blocked-reason">{{.BlockedReason}}</div>
+  {{end}}
+
+  {{if .HasReadyRank}}
+  <div class="board-card-meta">{{$ui.ReadyRank}} {{.ReadyRank}}</div>
+  {{end}}
+
+  {{if .HasAttempt}}
+  <div class="board-card-meta">
+    {{.ExecutorRole}} · {{.ExecutorLabel}} · {{.ExecutorModel}}<br>
+    {{.ExecutorClient}} · {{.ExecutorInstanceKey}} · {{.ExecutorWorktree}}
+    {{if .HasLeaseExpiry}}<br>{{$ui.LeaseExpiry}} {{.LeaseExpiresAt}}{{end}}
+  </div>
+  {{end}}
+
+  {{if .HasReview}}
+  <div class="board-card-meta">
+    {{$ui.ReviewLabel}}: <span class="board-card-review-{{if eq .ReviewStatus "approved"}}approved{{else}}open{{end}}">{{.ReviewStatus}}</span>
+    {{if .HasChangesRequested}} · {{.ChangesRequestedCount}}{{$ui.ChangesRequested}}{{end}}
+  </div>
+  {{end}}
+
+  {{if .HasDelivery}}
+  <ul class="board-delivery">
+  {{range .Delivery}}<li>{{if eq .Type "commit"}}{{$ui.DeliveryCommit}}{{else if eq .Type "branch"}}{{$ui.DeliveryBranch}}{{else if eq .Type "pull_request"}}{{$ui.DeliveryPR}}{{else}}{{.Type}}{{end}} <code>{{.URI}}</code>{{if .Title}} {{.Title}}{{end}}</li>
+  {{end}}
+  </ul>
+  {{end}}
+
+  {{if .CanReorder}}
+  <div class="board-card-actions">
+    <form method="post" action="/api/issues/{{.IssueLabel}}/rank" data-board-write-form>
+      <input type="hidden" name="csrf_token" value="{{$wf.CSRFToken}}">
+      <input type="hidden" name="expected_version" value="{{.Version}}">
+      <input type="hidden" name="direction" value="up">
+      <button class="btn btn-sm" type="submit" aria-label="{{$ui.MoveUp}}">{{$ui.MoveUp}}</button>
+    </form>
+    <form method="post" action="/api/issues/{{.IssueLabel}}/rank" data-board-write-form>
+      <input type="hidden" name="csrf_token" value="{{$wf.CSRFToken}}">
+      <input type="hidden" name="expected_version" value="{{.Version}}">
+      <input type="hidden" name="direction" value="down">
+      <button class="btn btn-sm" type="submit" aria-label="{{$ui.MoveDown}}">{{$ui.MoveDown}}</button>
+    </form>
+  </div>
+  {{end}}
+</div>
+{{end}}
+</div>
+{{end}}
+</div>
+{{end}}
+</div>
+
+{{if $wf.ReadyTruncated}}<p class="board-truncated">{{$ui.TruncatedReady}}</p>{{end}}
+{{if $wf.StoredReviewTruncated}}<p class="board-truncated">{{$ui.TruncatedInProgress}}</p>{{end}}
+{{if $wf.BlockedTruncated}}<p class="board-truncated">{{$ui.TruncatedBlocked}}</p>{{end}}
+{{if $wf.DoneTruncated}}<p class="board-truncated">{{$ui.TruncatedDone}}</p>{{end}}
+{{if $wf.ReviewTruncated}}<p class="board-truncated">{{$ui.TruncatedReview}}</p>{{end}}
+{{if $wf.DeliveryTruncated}}<p class="board-truncated">{{$ui.TruncatedDelivery}}</p>{{end}}
+{{if $wf.DeliveryUnavailable}}<p class="board-truncated">{{$ui.TruncatedDeliveryUnavailable}}</p>{{end}}
+
+{{if $wf.HasUnprojected}}
+<details class="board-unprojected">
+<summary>{{$ui.UnprojectedSummary}}（{{len $wf.Unprojected}}）</summary>
+<p class="board-generated">{{$ui.UnprojectedDesc}}</p>
+<div class="table-scroll"><table>
+<thead><tr><th>{{$ui.UnprojectedIssue}}</th><th>{{$ui.UnprojectedTitle}}</th><th>{{$ui.UnprojectedStatus}}</th><th>{{$ui.UnprojectedReason}}</th><th>{{$ui.UnprojectedDetail}}</th><th>{{$ui.UnprojectedAction}}</th></tr></thead>
+<tbody>
+{{range $wf.Unprojected}}<tr><td>{{if .HasIssueLink}}<a href="{{.IssueHref}}">{{.IssueLabel}}</a>{{else}}{{.IssueLabel}}{{end}}</td><td>{{.Title}}</td><td>{{.StoredStatus}}</td><td>{{.Reason}}</td><td>{{.Detail}}</td><td>{{if .CanMoveToReady}}<form method="post" action="/api/issues/{{.IssueLabel}}/ready" data-board-write-form>
+<input type="hidden" name="csrf_token" value="{{$wf.CSRFToken}}">
+<input type="hidden" name="expected_version" value="{{.Version}}">
+<button class="btn btn-sm" type="submit" aria-label="{{$ui.UnprojectedQueue}}">{{$ui.UnprojectedQueue}}</button>
+</form>{{else}}—{{end}}</td></tr>
+{{end}}</tbody>
+</table></div>
+{{if $wf.UnprojectedTruncated}}<p class="board-truncated">{{$ui.TruncatedUnprojected}}</p>{{end}}
+</details>
+{{end}}
+{{end}}

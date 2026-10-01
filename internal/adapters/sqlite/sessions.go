@@ -32,12 +32,13 @@ func (repository *AgentSessionRepository) CreateAgentSession(ctx context.Context
 	}
 	err = repository.db.Write(ctx, func(ctx context.Context, tx Executor) error {
 		_, err := tx.ExecContext(ctx, `INSERT INTO agent_sessions(
-			id, client_name, client_version, agent_label, model, instance_key,
+			id, client_name, client_version, agent_label, model, instance_key, worktree,
 			started_at, last_seen_at, ended_at, handle_hash
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			session.ID, session.ClientName, nullableSessionString(session.ClientVersion),
 			nullableSessionString(session.AgentLabel), nullableSessionString(session.Model),
-			nullableSessionString(session.InstanceKey), formatSessionTime(session.StartedAt),
+			nullableSessionString(session.InstanceKey), nullableSessionString(session.Worktree),
+			formatSessionTime(session.StartedAt),
 			formatSessionTime(session.LastSeenAt), nullableSessionTime(session.EndedAt), nullableSessionBytes(command.HandleHash))
 		return err
 	})
@@ -218,6 +219,7 @@ func validateSessionCommand(session domain.AgentSession) (domain.AgentSession, e
 	normalized, err := (domain.CreateAgentSessionInput{
 		ClientName: session.ClientName, ClientVersion: session.ClientVersion,
 		AgentLabel: session.AgentLabel, Model: session.Model, InstanceKey: session.InstanceKey,
+		Worktree: session.Worktree,
 	}).Validate()
 	if err != nil {
 		return domain.AgentSession{}, err
@@ -231,7 +233,7 @@ func validateSessionCommand(session domain.AgentSession) (domain.AgentSession, e
 	result := domain.AgentSession{
 		ID: session.ID, ClientName: normalized.ClientName,
 		ClientVersion: normalized.ClientVersion, AgentLabel: normalized.AgentLabel,
-		Model: normalized.Model, InstanceKey: normalized.InstanceKey,
+		Model: normalized.Model, InstanceKey: normalized.InstanceKey, Worktree: normalized.Worktree,
 		StartedAt: session.StartedAt.UTC(), LastSeenAt: session.LastSeenAt.UTC(),
 	}
 	if session.EndedAt != nil {
@@ -250,46 +252,46 @@ func validateSessionCommand(session domain.AgentSession) (domain.AgentSession, e
 
 func loadAgentSessionByHandle(ctx context.Context, query Queryer, handleHash []byte) (domain.AgentSession, error) {
 	var (
-		id, clientName, startedAt, lastSeenAt                  string
-		clientVersion, agentLabel, model, instanceKey, endedAt sql.NullString
+		id, clientName, startedAt, lastSeenAt                            string
+		clientVersion, agentLabel, model, instanceKey, worktree, endedAt sql.NullString
 	)
 	err := query.QueryRowContext(ctx, `SELECT id, client_name, client_version, agent_label, model,
-		instance_key, started_at, last_seen_at, ended_at FROM agent_sessions WHERE handle_hash = ?`, handleHash).
-		Scan(&id, &clientName, &clientVersion, &agentLabel, &model, &instanceKey, &startedAt, &lastSeenAt, &endedAt)
+		instance_key, worktree, started_at, last_seen_at, ended_at FROM agent_sessions WHERE handle_hash = ?`, handleHash).
+		Scan(&id, &clientName, &clientVersion, &agentLabel, &model, &instanceKey, &worktree, &startedAt, &lastSeenAt, &endedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return domain.AgentSession{}, domain.NewError(domain.CodeSessionNotFound, "agent session not found", false, domain.Detail{Field: "agent_session_handle", Code: "NOT_FOUND"})
 	}
 	if err != nil {
 		return domain.AgentSession{}, corruptSessionProjection(err)
 	}
-	return loadAgentSessionFromRow(id, clientName, clientVersion, agentLabel, model, instanceKey, startedAt, lastSeenAt, endedAt)
+	return loadAgentSessionFromRow(id, clientName, clientVersion, agentLabel, model, instanceKey, worktree, startedAt, lastSeenAt, endedAt)
 }
 
 func loadAgentSession(ctx context.Context, query Queryer, sessionID string) (domain.AgentSession, error) {
 	var (
-		id, clientName, startedAt, lastSeenAt                  string
-		clientVersion, agentLabel, model, instanceKey, endedAt sql.NullString
+		id, clientName, startedAt, lastSeenAt                            string
+		clientVersion, agentLabel, model, instanceKey, worktree, endedAt sql.NullString
 	)
 	err := query.QueryRowContext(ctx, `SELECT id, client_name, client_version, agent_label, model,
-		instance_key, started_at, last_seen_at, ended_at FROM agent_sessions WHERE id = ?`, sessionID).
-		Scan(&id, &clientName, &clientVersion, &agentLabel, &model, &instanceKey, &startedAt, &lastSeenAt, &endedAt)
+		instance_key, worktree, started_at, last_seen_at, ended_at FROM agent_sessions WHERE id = ?`, sessionID).
+		Scan(&id, &clientName, &clientVersion, &agentLabel, &model, &instanceKey, &worktree, &startedAt, &lastSeenAt, &endedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return domain.AgentSession{}, domain.NewError(domain.CodeSessionNotFound, "agent session not found", false)
 	}
 	if err != nil {
 		return domain.AgentSession{}, corruptSessionProjection(err)
 	}
-	return loadAgentSessionFromRow(id, clientName, clientVersion, agentLabel, model, instanceKey, startedAt, lastSeenAt, endedAt)
+	return loadAgentSessionFromRow(id, clientName, clientVersion, agentLabel, model, instanceKey, worktree, startedAt, lastSeenAt, endedAt)
 }
 
-func loadAgentSessionFromRow(id, clientName string, clientVersion, agentLabel, model, instanceKey sql.NullString, startedAt, lastSeenAt string, endedAt sql.NullString) (domain.AgentSession, error) {
+func loadAgentSessionFromRow(id, clientName string, clientVersion, agentLabel, model, instanceKey, worktree sql.NullString, startedAt, lastSeenAt string, endedAt sql.NullString) (domain.AgentSession, error) {
 	if _, err := ids.ParseStrict(id); err != nil {
 		return domain.AgentSession{}, corruptSessionProjection(err)
 	}
 	metadata := domain.CreateAgentSessionInput{
 		ClientName: clientName, ClientVersion: nullableSessionPointer(clientVersion),
 		AgentLabel: nullableSessionPointer(agentLabel), Model: nullableSessionPointer(model),
-		InstanceKey: nullableSessionPointer(instanceKey),
+		InstanceKey: nullableSessionPointer(instanceKey), Worktree: nullableSessionPointer(worktree),
 	}
 	normalized, err := metadata.Validate()
 	if err != nil {
@@ -318,6 +320,7 @@ func loadAgentSessionFromRow(id, clientName string, clientVersion, agentLabel, m
 	return domain.AgentSession{
 		ID: id, ClientName: normalized.ClientName, ClientVersion: normalized.ClientVersion,
 		AgentLabel: normalized.AgentLabel, Model: normalized.Model, InstanceKey: normalized.InstanceKey,
+		Worktree:  normalized.Worktree,
 		StartedAt: started, LastSeenAt: lastSeen, EndedAt: ended,
 	}, nil
 }

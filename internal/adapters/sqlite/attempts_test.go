@@ -1853,6 +1853,134 @@ func TestAttemptRepositoryListActiveAttemptsReportsHasMoreAtTheLimit(t *testing.
 	}
 }
 
+// TestAttemptRepositoryListActiveAttemptsProjectsSessionRuntimeMetadata
+// covers the board's executor display (acceptance AB-2 #1-#3): an active
+// attempt claimed through an explicit agent session carries that session's
+// label, instance key, client name, model, and worktree; a session-less or
+// partially populated claim degrades to nils instead of dropping the row; and
+// an attempt stops being reported once it is finished or its lease expires.
+func TestAttemptRepositoryListActiveAttemptsProjectsSessionRuntimeMetadata(t *testing.T) {
+	fixture := newAttemptTestFixture(t, "list-active-attempts-session-metadata")
+	defer fixture.close()
+
+	sessions, err := sqlite.NewAgentSessionRepository(fixture.db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	newSession := func(t *testing.T, label, instance, client, model, worktree *string) string {
+		t.Helper()
+		id := fixture.newID(t)
+		now := fixture.clock.Now().UTC()
+		if _, err := sessions.CreateAgentSession(fixture.ctx, ports.CreateAgentSessionCommand{Session: domain.AgentSession{
+			ID: id, ClientName: valueOr(client, "client"), AgentLabel: label,
+			InstanceKey: instance, Model: model, Worktree: worktree, StartedAt: now, LastSeenAt: now,
+		}}); err != nil {
+			t.Fatal(err)
+		}
+		return id
+	}
+	strPtr := func(value string) *string { return &value }
+
+	fullSession := newSession(t, strPtr("Luna"), strPtr("worker-1"), strPtr("Codex CLI"), strPtr("gpt-5"), strPtr("/tmp/wt/AB-2"))
+	attributedIssue := createAttemptIssue(t, fixture, "attributed", domain.StatusReady)
+	attributed, err := fixture.attempts.ClaimIssue(fixture.ctx, domain.ClaimIssueInput{
+		IssueID: attributedIssue.ID, SessionID: &fullSession, LeaseSeconds: intPointer(60),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	orphanIssue := createAttemptIssue(t, fixture, "no session handle", domain.StatusReady)
+	orphan, err := fixture.attempts.ClaimIssue(fixture.ctx, domain.ClaimIssueInput{
+		IssueID: orphanIssue.ID, LeaseSeconds: intPointer(60),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	minimalSession := newSession(t, nil, nil, strPtr("minimal-harness"), nil, nil)
+	partialIssue := createAttemptIssue(t, fixture, "partial session", domain.StatusReady)
+	partial, err := fixture.attempts.ClaimIssue(fixture.ctx, domain.ClaimIssueInput{
+		IssueID: partialIssue.ID, SessionID: &minimalSession, LeaseSeconds: intPointer(60),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	results, err := fixture.attempts.ListActiveAttempts(fixture.ctx, 0)
+	if err != nil {
+		t.Fatalf("ListActiveAttempts() error = %v", err)
+	}
+	if len(results.Items) != 3 {
+		t.Fatalf("results = %#v, want all three active attempts", results.Items)
+	}
+
+	attributedRow := activeAttemptByID(t, results.Items, attributed.Attempt.ID)
+	if attributedRow.SessionID == nil || *attributedRow.SessionID != fullSession {
+		t.Fatalf("session id = %v, want %s", attributedRow.SessionID, fullSession)
+	}
+	for name, got := range map[string]*string{
+		"label":       attributedRow.SessionLabel,
+		"instance":    attributedRow.SessionInstanceKey,
+		"client name": attributedRow.SessionClientName,
+		"model":       attributedRow.SessionModel,
+		"worktree":    attributedRow.SessionWorktree,
+	} {
+		if got == nil {
+			t.Fatalf("%s was not projected from the claiming session: %#v", name, attributedRow)
+		}
+	}
+	if *attributedRow.SessionLabel != "Luna" || *attributedRow.SessionInstanceKey != "worker-1" ||
+		*attributedRow.SessionClientName != "Codex CLI" || *attributedRow.SessionModel != "gpt-5" ||
+		*attributedRow.SessionWorktree != "/tmp/wt/AB-2" {
+		t.Fatalf("projected session metadata = %#v", attributedRow)
+	}
+	if !attributedRow.LeaseExpiresAt.After(fixture.clock.Now()) {
+		t.Fatalf("active attempt lease = %v, want a future expiry", attributedRow.LeaseExpiresAt)
+	}
+
+	orphanRow := activeAttemptByID(t, results.Items, orphan.Attempt.ID)
+	if orphanRow.SessionID != nil || orphanRow.SessionLabel != nil || orphanRow.SessionInstanceKey != nil ||
+		orphanRow.SessionClientName != nil || orphanRow.SessionModel != nil || orphanRow.SessionWorktree != nil {
+		t.Fatalf("session-less attempt projected session metadata: %#v", orphanRow)
+	}
+
+	partialRow := activeAttemptByID(t, results.Items, partial.Attempt.ID)
+	if partialRow.SessionClientName == nil || *partialRow.SessionClientName != "minimal-harness" {
+		t.Fatalf("partial session client name = %v", partialRow.SessionClientName)
+	}
+	if partialRow.SessionLabel != nil || partialRow.SessionInstanceKey != nil ||
+		partialRow.SessionModel != nil || partialRow.SessionWorktree != nil {
+		t.Fatalf("partial session projected unreported metadata: %#v", partialRow)
+	}
+
+	// A finished attempt is no longer a current executor, even though its
+	// session metadata is intact.
+	finish := finishInput(attributed, domain.AttemptOutcomeCompleted)
+	finish.TargetIssueStatus = statusPointer(domain.StatusReady)
+	if _, err := fixture.attempts.FinishAttempt(fixture.ctx, finish); err != nil {
+		t.Fatal(err)
+	}
+	results, err = fixture.attempts.ListActiveAttempts(fixture.ctx, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results.Items) != 2 || containsAttemptID(results.Items, attributed.Attempt.ID) {
+		t.Fatalf("finished attempt is still reported: %#v", results.Items)
+	}
+
+	// Once every remaining lease has expired, the board reports no current
+	// executor at all -- expired attempts are not "in progress" holders.
+	fixture.clock.Advance(90 * time.Second)
+	results, err = fixture.attempts.ListActiveAttempts(fixture.ctx, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results.Items) != 0 {
+		t.Fatalf("expired attempts are still reported: %#v", results.Items)
+	}
+}
+
 // TestExpireAttemptsSweepsFractionalBoundariesAgainstWholeSecondLeases is a
 // regression test for ISSUE-192: SQLite compares the lease_expires_at TEXT
 // column with memcmp, so ExpireAttempts' `lease_expires_at <= ?` predicate
@@ -3669,4 +3797,32 @@ func TestCancelledOpenReviewRequestLeavesUnboundAttemptsAlone(t *testing.T) {
 	if cancelledAttempts != 0 {
 		t.Fatalf("cancelled attempts after cancelling an open request = %d, want 0", cancelledAttempts)
 	}
+}
+
+// activeAttemptByID returns one row of a ListActiveAttempts page.
+func activeAttemptByID(t *testing.T, items []domain.ActiveAttemptSummary, attemptID string) domain.ActiveAttemptSummary {
+	t.Helper()
+	for _, item := range items {
+		if item.AttemptID == attemptID {
+			return item
+		}
+	}
+	t.Fatalf("attempt %s not in active page: %#v", attemptID, items)
+	return domain.ActiveAttemptSummary{}
+}
+
+func containsAttemptID(items []domain.ActiveAttemptSummary, attemptID string) bool {
+	for _, item := range items {
+		if item.AttemptID == attemptID {
+			return true
+		}
+	}
+	return false
+}
+
+func valueOr(value *string, fallback string) string {
+	if value == nil {
+		return fallback
+	}
+	return *value
 }

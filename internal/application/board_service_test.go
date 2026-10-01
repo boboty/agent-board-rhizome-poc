@@ -37,7 +37,7 @@ func TestNewBoardServiceRejectsNilDependencies(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := NewBoardService(tt.issue, tt.attempt, tt.reservation, tt.review, tt.graph, &stubGateSummaryService{}, tt.source)
+			_, err := NewBoardService(tt.issue, tt.attempt, tt.reservation, tt.review, tt.graph, &stubGateSummaryService{}, nil, tt.source)
 			if !errors.Is(err, &domain.Error{Code: tt.wantCode}) {
 				t.Fatalf("NewBoardService() error = %v, want %q", err, tt.wantCode)
 			}
@@ -57,7 +57,7 @@ func TestBoardServiceGetBoardAggregatesBoundedCollectionsAndGraph(t *testing.T) 
 	graphRepo := &boardRecordingGraphRepository{snapshot: domain.GraphSnapshot{RootIssueID: boardStringPointer("issue-1"), Nodes: []domain.IssueProjection{{Issue: domain.Issue{ID: "issue-1", DisplayID: "ISSUE-1"}}}}}
 
 	issueService, attemptService, reservationService, reviewService, graphService, source := newBoardServiceDependenciesWithRepos(t, issueRepo, attemptRepo, reservationRepo, reviewRepo, graphRepo, now)
-	service, err := NewBoardService(issueService, attemptService, reservationService, reviewService, graphService, &stubGateSummaryService{}, source)
+	service, err := NewBoardService(issueService, attemptService, reservationService, reviewService, graphService, &stubGateSummaryService{}, nil, source)
 	if err != nil {
 		t.Fatalf("NewBoardService() error = %v", err)
 	}
@@ -92,11 +92,12 @@ func TestBoardServiceGetBoardAggregatesBoundedCollectionsAndGraph(t *testing.T) 
 	if !issueRepo.countCommand.Now.Equal(now.UTC()) || issueRepo.countCommand.Now.Location() != time.UTC {
 		t.Fatalf("issue count clock = %v", issueRepo.countCommand.Now)
 	}
-	if issueRepo.listCommand.Input.IsBlocked == nil || !*issueRepo.listCommand.Input.IsBlocked {
-		t.Fatalf("blocked filter = %#v", issueRepo.listCommand.Input.IsBlocked)
+	blockedCommand, ok := boardBlockedListCommand(issueRepo)
+	if !ok || blockedCommand.Input.IsBlocked == nil || !*blockedCommand.Input.IsBlocked {
+		t.Fatalf("blocked filter = %#v", blockedCommand.Input.IsBlocked)
 	}
-	if issueRepo.listCommand.Input.Limit != domain.MaxBoardCollectionLimit {
-		t.Fatalf("blocked limit = %d", issueRepo.listCommand.Input.Limit)
+	if blockedCommand.Input.Limit != domain.MaxBoardCollectionLimit {
+		t.Fatalf("blocked limit = %d", blockedCommand.Input.Limit)
 	}
 	if attemptRepo.listCommand.Limit != domain.MaxBoardCollectionLimit {
 		t.Fatalf("active attempt limit = %d", attemptRepo.listCommand.Limit)
@@ -107,11 +108,12 @@ func TestBoardServiceGetBoardAggregatesBoundedCollectionsAndGraph(t *testing.T) 
 	if reservationRepo.listCommand.Input.Limit != domain.MaxBoardCollectionLimit {
 		t.Fatalf("active reservation limit = %d", reservationRepo.listCommand.Input.Limit)
 	}
-	if reviewRepo.listQuery.Status == nil || *reviewRepo.listQuery.Status != domain.ReviewRequestStatusOpen {
-		t.Fatalf("review status query = %#v", reviewRepo.listQuery.Status)
+	openReviewQuery, ok := boardReviewListQuery(reviewRepo, domain.ReviewRequestStatusOpen)
+	if !ok || openReviewQuery.Status == nil || *openReviewQuery.Status != domain.ReviewRequestStatusOpen {
+		t.Fatalf("review status query = %#v", openReviewQuery.Status)
 	}
-	if reviewRepo.listQuery.Limit != domain.MaxBoardCollectionLimit {
-		t.Fatalf("review limit = %d", reviewRepo.listQuery.Limit)
+	if openReviewQuery.Limit != domain.MaxBoardCollectionLimit {
+		t.Fatalf("review limit = %d", openReviewQuery.Limit)
 	}
 	if graphRepo.command.RootIdentifier != nil {
 		t.Fatalf("graph root identifier = %#v", graphRepo.command.RootIdentifier)
@@ -202,7 +204,7 @@ func TestBoardServiceShortCircuitsAtEachDependencyBoundary(t *testing.T) {
 			tt.configure(issueRepo, attemptRepo, reservationRepo, reviewRepo, graphRepo)
 
 			issueService, attemptService, reservationService, reviewService, graphService, source := newBoardServiceDependenciesWithRepos(t, issueRepo, attemptRepo, reservationRepo, reviewRepo, graphRepo, now)
-			service, err := NewBoardService(issueService, attemptService, reservationService, reviewService, graphService, &stubGateSummaryService{}, source)
+			service, err := NewBoardService(issueService, attemptService, reservationService, reviewService, graphService, &stubGateSummaryService{}, nil, source)
 			if err != nil {
 				t.Fatalf("NewBoardService() error = %v", err)
 			}
@@ -261,12 +263,22 @@ func (generator testIDGenerator) New() (string, error) { return generator.id, ge
 type boardRecordingIssueRepository struct {
 	countCommand ports.CountIssuesByEffectiveStatusCommand
 	listCommand  ports.ListIssuesCommand
+	// listCommands records every ListIssues call in order. The board issues
+	// more than one issue read (the blocked page plus one per workflow
+	// projection status group), so a test asserting on a specific read must
+	// search the recorded calls rather than trust the last one.
+	listCommands []ports.ListIssuesCommand
 	countResult  []domain.EffectiveStatusCount
 	listResult   domain.IssueList
-	countErr     error
-	listErr      error
-	countCalled  bool
-	listCalled   bool
+	// listResultsByStatus overrides listResult for a single-status read.
+	listResultsByStatus map[domain.Status]domain.IssueList
+	// blockedResult overrides listResult for the IsBlocked read, which the
+	// board issues alongside its stored-status reads.
+	blockedResult *domain.IssueList
+	countErr      error
+	listErr       error
+	countCalled   bool
+	listCalled    bool
 }
 
 func (repository *boardRecordingIssueRepository) CreateIssue(context.Context, ports.CreateIssueCommand) (domain.Issue, error) {
@@ -316,7 +328,27 @@ func (repository *boardRecordingIssueRepository) ListLabels(context.Context, por
 func (repository *boardRecordingIssueRepository) ListIssues(_ context.Context, command ports.ListIssuesCommand) (domain.IssueList, error) {
 	repository.listCalled = true
 	repository.listCommand = command
+	repository.listCommands = append(repository.listCommands, command)
+	if command.Input.IsBlocked != nil && repository.blockedResult != nil {
+		return *repository.blockedResult, repository.listErr
+	}
+	if len(command.Input.Statuses) == 1 {
+		if result, ok := repository.listResultsByStatus[command.Input.Statuses[0]]; ok {
+			return result, repository.listErr
+		}
+	}
 	return repository.listResult, repository.listErr
+}
+
+// boardBlockedListCommand returns the recorded blocked-issues read, which is
+// the one ListIssues call made with an IsBlocked filter.
+func boardBlockedListCommand(repository *boardRecordingIssueRepository) (ports.ListIssuesCommand, bool) {
+	for _, command := range repository.listCommands {
+		if command.Input.IsBlocked != nil {
+			return command, true
+		}
+	}
+	return ports.ListIssuesCommand{}, false
 }
 
 func (repository *boardRecordingIssueRepository) CountIssuesByEffectiveStatus(_ context.Context, command ports.CountIssuesByEffectiveStatusCommand) ([]domain.EffectiveStatusCount, error) {
@@ -436,10 +468,16 @@ func (repository *boardRecordingReservationRepository) GetReservation(context.Co
 }
 
 type boardRecordingReviewRepository struct {
-	listQuery  ports.ListReviewRequestsQuery
-	listResult ports.ListReviewRequestsResult
-	listErr    error
-	listCalled bool
+	listQuery ports.ListReviewRequestsQuery
+	// listQueries records every ListReviewRequests call in order: the board
+	// reads open (for its existing collection), then claimed,
+	// changes_requested, and blocked for the workflow projection.
+	listQueries []ports.ListReviewRequestsQuery
+	listResult  ports.ListReviewRequestsResult
+	// listResultsByStatus overrides listResult for one status filter.
+	listResultsByStatus map[domain.ReviewRequestStatus]ports.ListReviewRequestsResult
+	listErr             error
+	listCalled          bool
 }
 
 func (repository *boardRecordingReviewRepository) CreateReviewRequest(context.Context, ports.CreateReviewRequestCommand) (ports.CreateReviewRequestResult, error) {
@@ -453,7 +491,23 @@ func (repository *boardRecordingReviewRepository) GetReviewRequest(context.Conte
 func (repository *boardRecordingReviewRepository) ListReviewRequests(_ context.Context, query ports.ListReviewRequestsQuery) (ports.ListReviewRequestsResult, error) {
 	repository.listCalled = true
 	repository.listQuery = query
+	repository.listQueries = append(repository.listQueries, query)
+	if query.Status != nil {
+		if result, ok := repository.listResultsByStatus[*query.Status]; ok {
+			return result, repository.listErr
+		}
+	}
 	return repository.listResult, repository.listErr
+}
+
+// boardReviewListQuery returns the recorded read for one review status.
+func boardReviewListQuery(repository *boardRecordingReviewRepository, status domain.ReviewRequestStatus) (ports.ListReviewRequestsQuery, bool) {
+	for _, query := range repository.listQueries {
+		if query.Status != nil && *query.Status == status {
+			return query, true
+		}
+	}
+	return ports.ListReviewRequestsQuery{}, false
 }
 
 func (repository *boardRecordingReviewRepository) CancelReviewRequest(context.Context, ports.ReviewMutationCommand) (ports.ReviewMutationResult, error) {
@@ -511,7 +565,7 @@ func TestBoardServiceBuildsAttemptGateProgress(t *testing.T) {
 	}}
 
 	issueService, attemptService, reservationService, reviewService, graphService, source := newBoardServiceDependenciesWithRepos(t, &boardRecordingIssueRepository{}, attemptRepo, &boardRecordingReservationRepository{}, &boardRecordingReviewRepository{}, &boardRecordingGraphRepository{}, now)
-	service, err := NewBoardService(issueService, attemptService, reservationService, reviewService, graphService, gateService, source)
+	service, err := NewBoardService(issueService, attemptService, reservationService, reviewService, graphService, gateService, nil, source)
 	if err != nil {
 		t.Fatalf("NewBoardService() error = %v", err)
 	}
@@ -543,7 +597,7 @@ func TestBoardServiceFailsWhenGateSummaryFails(t *testing.T) {
 	gateService := &stubGateSummaryService{err: domain.NewError(domain.CodeStorageUnavailable, "gate read failed", false)}
 
 	issueService, attemptService, reservationService, reviewService, graphService, source := newBoardServiceDependenciesWithRepos(t, &boardRecordingIssueRepository{}, attemptRepo, &boardRecordingReservationRepository{}, &boardRecordingReviewRepository{}, &boardRecordingGraphRepository{}, now)
-	service, err := NewBoardService(issueService, attemptService, reservationService, reviewService, graphService, gateService, source)
+	service, err := NewBoardService(issueService, attemptService, reservationService, reviewService, graphService, gateService, nil, source)
 	if err != nil {
 		t.Fatalf("NewBoardService() error = %v", err)
 	}
@@ -664,7 +718,7 @@ func TestBoardServiceGetBoardReportsPerCollectionTruncation(t *testing.T) {
 			graphRepo := &boardRecordingGraphRepository{}
 
 			issueService, attemptService, reservationService, reviewService, graphService, source := newBoardServiceDependenciesWithRepos(t, issueRepo, attemptRepo, reservationRepo, reviewRepo, graphRepo, now)
-			service, err := NewBoardService(issueService, attemptService, reservationService, reviewService, graphService, &stubGateSummaryService{}, source)
+			service, err := NewBoardService(issueService, attemptService, reservationService, reviewService, graphService, &stubGateSummaryService{}, nil, source)
 			if err != nil {
 				t.Fatalf("NewBoardService() error = %v", err)
 			}
@@ -726,7 +780,7 @@ func TestBoardServiceReservationTruncationIsPreFilter(t *testing.T) {
 	graphRepo := &boardRecordingGraphRepository{}
 
 	issueService, attemptService, reservationService, reviewService, graphService, source := newBoardServiceDependenciesWithRepos(t, issueRepo, attemptRepo, reservationRepo, reviewRepo, graphRepo, now)
-	service, err := NewBoardService(issueService, attemptService, reservationService, reviewService, graphService, &stubGateSummaryService{}, source)
+	service, err := NewBoardService(issueService, attemptService, reservationService, reviewService, graphService, &stubGateSummaryService{}, nil, source)
 	if err != nil {
 		t.Fatalf("NewBoardService() error = %v", err)
 	}

@@ -33,3 +33,4 @@ lsp.json
 
 # Local DB backups
 /.backups/
+/bin

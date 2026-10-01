@@ -203,11 +203,15 @@ func NewServices(project *runtime.Project, source clock.Clock) (*Services, error
 	if err != nil {
 		return nil, err
 	}
-	boardService, err := application.NewBoardService(issueService, attemptService, reservationService, reviewService, graphService, workflowPolicyService, source)
+	boardService, err := application.NewBoardService(issueService, attemptService, reservationService, reviewService, graphService, workflowPolicyService, workContextService, source)
 	if err != nil {
 		return nil, err
 	}
 	issueDetailService, err := application.NewIssueDetailService(issueService, graphService, activityService, reservationService, workflowPolicyService)
+	if err != nil {
+		return nil, err
+	}
+	boardCommandService, err := application.NewBoardCommandService(issueService, boardService)
 	if err != nil {
 		return nil, err
 	}
@@ -233,6 +237,7 @@ func NewServices(project *runtime.Project, source clock.Clock) (*Services, error
 			MaintenanceService:    maintenanceService,
 			BoardService:          boardService,
 			IssueDetailService:    issueDetailService,
+			BoardCommandService:   boardCommandService,
 		},
 	}, nil
 }

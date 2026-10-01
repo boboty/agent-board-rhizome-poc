@@ -55,6 +55,7 @@ type createIssueInput struct {
 	AcceptanceCriteria  *string  `json:"acceptance_criteria,omitempty"`
 	Status              string   `json:"status,omitempty"`
 	Priority            string   `json:"priority,omitempty"`
+	ReadyRank           *int64   `json:"ready_rank,omitempty"`
 	ParentIssueID       *string  `json:"parent_issue_id,omitempty"`
 	BlockedReason       *string  `json:"blocked_reason,omitempty"`
 	Labels              []string `json:"labels,omitempty"`
@@ -240,6 +241,7 @@ type createAgentSessionInput struct {
 	AgentLabel    *string `json:"agent_label,omitempty"`
 	Model         *string `json:"model,omitempty"`
 	InstanceKey   *string `json:"instance_key,omitempty"`
+	Worktree      *string `json:"worktree,omitempty"`
 }
 
 type endAgentSessionInput struct {
@@ -432,6 +434,7 @@ type patchInput struct {
 	Type               optionalString
 	Priority           optionalString
 	Status             optionalString
+	ReadyRank          optionalNullableInt
 	ParentIssueID      optionalNullableString
 	BlockedReason      optionalNullableString
 	Labels             optionalStrings
@@ -445,6 +448,11 @@ type optionalString struct {
 type optionalNullableString struct {
 	set   bool
 	value *string
+}
+
+type optionalNullableInt struct {
+	set   bool
+	value *int64
 }
 
 type optionalStrings struct {
@@ -487,6 +495,10 @@ func (input *patchInput) UnmarshalJSON(data []byte) error {
 			if err := json.Unmarshal(raw, &input.Status.value); err != nil {
 				return fmt.Errorf("status: %w", err)
 			}
+		case "ready_rank":
+			if err := unmarshalNullableInt(raw, &input.ReadyRank); err != nil {
+				return fmt.Errorf("ready_rank: %w", err)
+			}
 		case "parent_issue_id":
 			if err := unmarshalNullableString(raw, &input.ParentIssueID); err != nil {
 				return fmt.Errorf("parent_issue_id: %w", err)
@@ -518,6 +530,14 @@ func unmarshalNullableString(raw json.RawMessage, destination *optionalNullableS
 	return json.Unmarshal(raw, &destination.value)
 }
 
+func unmarshalNullableInt(raw json.RawMessage, destination *optionalNullableInt) error {
+	destination.set, destination.value = true, nil
+	if bytes.Equal(raw, []byte("null")) {
+		return nil
+	}
+	return json.Unmarshal(raw, &destination.value)
+}
+
 func (input patchInput) domainPatch() domain.IssuePatch {
 	return domain.IssuePatch{
 		Title:              domain.OptionalValue[string]{Set: input.Title.set, Value: input.Title.value},
@@ -526,6 +546,7 @@ func (input patchInput) domainPatch() domain.IssuePatch {
 		Type:               domain.OptionalValue[domain.Type]{Set: input.Type.set, Value: domain.Type(input.Type.value)},
 		Priority:           domain.OptionalValue[domain.Priority]{Set: input.Priority.set, Value: domain.Priority(input.Priority.value)},
 		Status:             domain.OptionalValue[domain.Status]{Set: input.Status.set, Value: domain.Status(input.Status.value)},
+		ReadyRank:          domain.OptionalInt64{Set: input.ReadyRank.set, Value: copyInt64(input.ReadyRank.value)},
 		ParentID:           domain.OptionalString{Set: input.ParentIssueID.set, Value: input.ParentIssueID.value},
 		BlockedReason:      domain.OptionalString{Set: input.BlockedReason.set, Value: input.BlockedReason.value},
 		Labels:             domain.OptionalValue[[]string]{Set: input.Labels.set, Value: input.Labels.value},
@@ -580,6 +601,7 @@ type sessionDTO struct {
 	AgentLabel    *string    `json:"agent_label"`
 	Model         *string    `json:"model"`
 	InstanceKey   *string    `json:"instance_key"`
+	Worktree      *string    `json:"worktree"`
 	StartedAt     time.Time  `json:"started_at"`
 	LastSeenAt    time.Time  `json:"last_seen_at"`
 	EndedAt       *time.Time `json:"ended_at"`
@@ -676,6 +698,7 @@ type issueStandardProjectionDTO struct {
 	UpdatedAt     time.Time           `json:"updated_at"`
 	Status        string              `json:"status"`
 	Priority      string              `json:"priority"`
+	ReadyRank     *int64              `json:"ready_rank"`
 	ParentIssueID *string             `json:"parent_issue_id"`
 	BlockedReason *string             `json:"blocked_reason"`
 	CreatedAt     time.Time           `json:"created_at"`
@@ -700,6 +723,7 @@ type issueDTO struct {
 	AcceptanceCriteria *string    `json:"acceptance_criteria"`
 	Status             string     `json:"status"`
 	Priority           string     `json:"priority"`
+	ReadyRank          *int64     `json:"ready_rank"`
 	ParentIssueID      *string    `json:"parent_issue_id"`
 	BlockedReason      *string    `json:"blocked_reason"`
 	Version            int64      `json:"version"`
@@ -1026,6 +1050,7 @@ type issueListItemCompactDTO struct {
 	Status                 string     `json:"status"`
 	EffectiveStatus        string     `json:"effective_status"`
 	Priority               string     `json:"priority"`
+	ReadyRank              *int64     `json:"ready_rank"`
 	IsBlocked              bool       `json:"is_blocked"`
 	IsClaimable            bool       `json:"is_claimable"`
 	UnresolvedBlockerCount int64      `json:"unresolved_blocker_count"`
@@ -1048,6 +1073,7 @@ func issueListItemCompactDTOFromDomain(item domain.IssueProjection) issueListIte
 		Status:                 string(item.Issue.Status),
 		EffectiveStatus:        string(item.EffectiveStatus),
 		Priority:               string(item.Issue.Priority),
+		ReadyRank:              copyInt64(item.Issue.ReadyRank),
 		IsBlocked:              item.IsBlocked,
 		IsClaimable:            item.IsClaimable,
 		UnresolvedBlockerCount: item.UnresolvedBlockerCount,
@@ -1622,7 +1648,8 @@ func issueStandardProjectionDTOFromDomain(issue domain.Issue) issueStandardProje
 	return issueStandardProjectionDTO{
 		ID: issue.ID, DisplayID: issue.DisplayID, SequenceNo: issue.SequenceNo,
 		Type: string(issue.Type), Title: issue.Title, Version: issue.Version, UpdatedAt: issue.UpdatedAt,
-		Status: string(issue.Status), Priority: string(issue.Priority), ParentIssueID: issue.ParentID,
+		Status: string(issue.Status), Priority: string(issue.Priority), ReadyRank: copyInt64(issue.ReadyRank),
+		ParentIssueID: issue.ParentID,
 		BlockedReason: issue.BlockedReason, CreatedAt: issue.CreatedAt, ClosedAt: issue.ClosedAt,
 		ArchivedAt: issue.ArchivedAt, Labels: labels,
 	}
@@ -1636,6 +1663,7 @@ func sessionDTOFromDomain(session domain.AgentSession) sessionDTO {
 		AgentLabel:    copyString(session.AgentLabel),
 		Model:         copyString(session.Model),
 		InstanceKey:   copyString(session.InstanceKey),
+		Worktree:      copyString(session.Worktree),
 		StartedAt:     session.StartedAt,
 		LastSeenAt:    session.LastSeenAt,
 		EndedAt:       session.EndedAt,
@@ -1650,7 +1678,8 @@ func issueDTOFromDomain(issue domain.Issue) issueDTO {
 	return issueDTO{
 		ID: issue.ID, DisplayID: issue.DisplayID, SequenceNo: issue.SequenceNo, Type: string(issue.Type),
 		Title: issue.Title, Description: issue.Description, AcceptanceCriteria: issue.AcceptanceCriteria,
-		Status: string(issue.Status), Priority: string(issue.Priority), ParentIssueID: issue.ParentID,
+		Status: string(issue.Status), Priority: string(issue.Priority), ReadyRank: copyInt64(issue.ReadyRank),
+		ParentIssueID: issue.ParentID,
 		BlockedReason: issue.BlockedReason, Version: issue.Version, CreatedAt: issue.CreatedAt,
 		UpdatedAt: issue.UpdatedAt, ClosedAt: issue.ClosedAt, ArchivedAt: issue.ArchivedAt, Labels: labels,
 	}
@@ -1718,6 +1747,14 @@ func copyString(value *string) *string {
 }
 
 func copyTime(value *time.Time) *time.Time {
+	if value == nil {
+		return nil
+	}
+	result := *value
+	return &result
+}
+
+func copyInt64(value *int64) *int64 {
 	if value == nil {
 		return nil
 	}

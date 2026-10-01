@@ -470,3 +470,37 @@ func extractEndpoint(logs string) string {
 	}
 	return logs[start : start+end]
 }
+
+func TestBoardNullOriginPolicy(t *testing.T) {
+	for _, tc := range []struct {
+		name, host, origin, site string
+		allow                    bool
+		want                     int
+	}{
+		{"board same origin", "127.0.0.1:8080", "null", "same-origin", true, 204},
+		{"board user navigation", "127.0.0.1:8080", "null", "none", true, 204},
+		{"strict MCP", "127.0.0.1:8080", "null", "same-origin", false, 403},
+		{"missing metadata", "127.0.0.1:8080", "null", "", true, 403},
+		{"cross site", "127.0.0.1:8080", "null", "cross-site", true, 403},
+		{"same site", "127.0.0.1:8080", "null", "same-site", true, 403},
+		{"foreign origin", "127.0.0.1:8080", "http://evil.example", "same-origin", true, 403},
+		{"foreign host", "127.0.0.1:9090", "null", "same-origin", true, 421},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			handler := wrapHTTPHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Header.Get("Origin") != tc.origin {
+					t.Fatal("origin header changed")
+				}
+				w.WriteHeader(http.StatusNoContent)
+			}), "127.0.0.1:8080", nil, 1024, tc.allow)
+			request := httptest.NewRequest(http.MethodPost, "http://"+tc.host+"/api/issues", nil)
+			request.Header.Set("Origin", tc.origin)
+			request.Header.Set("Sec-Fetch-Site", tc.site)
+			recorder := httptest.NewRecorder()
+			handler.ServeHTTP(recorder, request)
+			if recorder.Code != tc.want {
+				t.Fatalf("status = %d, want %d", recorder.Code, tc.want)
+			}
+		})
+	}
+}

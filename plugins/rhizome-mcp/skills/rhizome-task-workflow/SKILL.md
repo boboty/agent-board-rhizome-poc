@@ -6,6 +6,15 @@ argument-hint: "Describe the task, issue, or outcome to coordinate."
 
 # Rhizome Task Workflow
 
+> **Agent Board boundary note:** This skill describes low-level rhizome runtime
+> primitives (claim, attempt, lease, finish, review request). At the Agent Board
+> level, the **Orchestrator is the sole owner of task-level lifecycle transitions**
+> (READY → IN PROGRESS → DONE / BLOCKED). Developer and Verifier execute work
+> and return evidence (PASS / RC / BLOCKED + evidence) to the Orchestrator;
+> they never directly advance the board-level state. The primitives below are
+> the mechanisms agents use to do their work; the Orchestrator interprets
+> their outcomes to drive board-level state.
+
 1. Call `open_project` with the absolute repository root. Retain its `project_ref` and pass it to every later project-scoped tool call.
 2. Find claimable work with `get_planning_graph` or `list_issues` using that `project_ref`.
 3. Read `get_work_context`, then claim exactly one issue before editing.

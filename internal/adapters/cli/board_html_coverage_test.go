@@ -22,7 +22,7 @@ func TestRenderBoardHTMLCoverage(t *testing.T) {
 			{EffectiveStatus: domain.EffectiveStatusInProgress, Count: 2},
 		},
 		ActiveAttempts: []domain.ActiveAttemptSummary{
-			{AttemptID: "attempt-work", IssueID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", IssueDisplayID: "ISSUE-100", IssueTitle: "Implement export", Kind: domain.AttemptKindWork, SessionLabel: strPtr("session-a"), StartedAt: fixedAt, LeaseExpiresAt: fixedAt.Add(15 * time.Minute)},
+			{AttemptID: "attempt-work", IssueID: "01ARZ3NDEKTSV4RRFFQ69G5FAV", IssueDisplayID: "ISSUE-100", IssueTitle: "Implement export", Kind: domain.AttemptKindWork, SessionLabel: strPtr("session-a"), SessionInstanceKey: strPtr("worker-1"), SessionClientName: strPtr("Codex CLI"), SessionModel: strPtr("gpt-5"), SessionWorktree: strPtr("/tmp/wt/AB-2"), StartedAt: fixedAt, LeaseExpiresAt: fixedAt.Add(15 * time.Minute)},
 			{AttemptID: "attempt-review", IssueID: "01ARZ3NDEKTSV4RRFFQ69G5FAV2", IssueDisplayID: "ISSUE-101", IssueTitle: "Review export", Kind: domain.AttemptKindReview, StartedAt: fixedAt.Add(2 * time.Minute), LeaseExpiresAt: fixedAt.Add(20 * time.Minute)},
 		},
 		ActiveReservations: []domain.Reservation{
@@ -65,7 +65,7 @@ func TestRenderBoardHTMLCoverage(t *testing.T) {
 		if err != nil {
 			t.Fatalf("renderBoardHTML: %v", err)
 		}
-		for _, want := range []string{"Rhizome status board", "Status counts", "ISSUE-120", "Waiting on umbrella issue", "attempt-work", "file: src/&lt;script&gt;alert(4)&lt;/script&gt;.go", "1 active resource reservation,"} {
+		for _, want := range []string{"Agent Board", "状态统计", "ISSUE-120", "Waiting on umbrella issue", "attempt-work", "file: src/&lt;script&gt;alert(4)&lt;/script&gt;.go", "活跃资源预留"} {
 			if !strings.Contains(html, want) {
 				t.Fatalf("static board missing %q:\n%s", want, html)
 			}
@@ -80,8 +80,11 @@ func TestRenderBoardHTMLCoverage(t *testing.T) {
 			t.Fatalf("static board rendered raw script-like reservation display value: %s", html)
 		}
 		reviewRow := tableRowFor(t, html, "attempt-review")
-		if strings.Count(reviewRow, "—") != 3 {
-			t.Fatalf("attempt-review row should show the empty placeholder for session label, reservations, and gates, got: %s", reviewRow)
+		// A session-less attempt degrades every session column plus the
+		// reservation and gate columns to the em-dash placeholder rather than
+		// rendering blanks or failing.
+		if strings.Count(reviewRow, "—") != 7 {
+			t.Fatalf("attempt-review row should show the empty placeholder for five session fields, reservations, and gates, got: %s", reviewRow)
 		}
 		if strings.Contains(reviewRow, "<li>") {
 			t.Fatalf("attempt-review has no reservations and should render no <li>: %s", reviewRow)
@@ -90,6 +93,12 @@ func TestRenderBoardHTMLCoverage(t *testing.T) {
 		if !strings.Contains(workRow, "<li>file: src/&lt;script&gt;alert(4)&lt;/script&gt;.go</li>") {
 			t.Fatalf("attempt-work row missing its grouped reservation: %s", workRow)
 		}
+		// The claiming session's runtime metadata is visible on the row.
+		for _, want := range []string{"<td>session-a</td>", "<td>worker-1</td>", "<td>Codex CLI</td>", "<td>gpt-5</td>", "<td>/tmp/wt/AB-2</td>"} {
+			if !strings.Contains(workRow, want) {
+				t.Fatalf("attempt-work row missing session metadata %q: %s", want, workRow)
+			}
+		}
 	})
 
 	t.Run("served board", func(t *testing.T) {
@@ -97,7 +106,7 @@ func TestRenderBoardHTMLCoverage(t *testing.T) {
 		if err != nil {
 			t.Fatalf("renderServedBoardHTML: %v", err)
 		}
-		for _, want := range []string{"data-board-main", "Search", "data-board-search-form", "board-search-query", "ISSUE-100", "ISSUE-120", "ISSUE-200", "ISSUE-201", "(truncated)", "href=\"/issues/ISSUE-200\"", "href=\"/issues/ISSUE-201\"", "href=\"/issues/ISSUE-100\"", "1 active resource reservation,"} {
+		for _, want := range []string{"data-board-main", "搜索", "data-board-search-form", "board-search-query", "ISSUE-100", "ISSUE-120", "ISSUE-200", "ISSUE-201", "已截断", "href=\"/issues/ISSUE-200\"", "href=\"/issues/ISSUE-201\"", "href=\"/issues/ISSUE-100\"", "活跃资源预留"} {
 			if !strings.Contains(html, want) {
 				t.Fatalf("served board missing %q:\n%s", want, html)
 			}
@@ -205,7 +214,7 @@ func TestRenderIssueDetailHTMLCoverage(t *testing.T) {
 		if err != nil {
 			t.Fatalf("renderIssueDetailHTML: %v", err)
 		}
-		for _, want := range []string{"ISSUE-300", "Archived:", "alpha, beta", "Need &lt;script&gt;alert(1)&lt;/script&gt;", "Approval &lt;b&gt;required&lt;/b&gt;", "Blocked by &lt;script&gt;alert(2)&lt;/script&gt;", "Root issue", "href=\"/issues/ISSUE-301\"", "Latest attempt", "attempt-777", "Open review", "review-open", "Latest decision", "Decision summary", "Related graph", "aria-label=\"Planning graph\"", "Additional activity is available.", "Comment &lt;script&gt;alert(3)&lt;/script&gt;", "Work done &lt;b&gt;today&lt;/b&gt;", "current.go", "old/&lt;script&gt;alert(5)&lt;/script&gt;/**", "active", "released", "Additional reservations are available."} {
+		for _, want := range []string{"ISSUE-300", "归档时间:", "alpha, beta", "Need &lt;script&gt;alert(1)&lt;/script&gt;", "Approval &lt;b&gt;required&lt;/b&gt;", "Blocked by &lt;script&gt;alert(2)&lt;/script&gt;", "根任务", "href=\"/issues/ISSUE-301\"", "最近执行", "attempt-777", "验收中", "review-open", "最新决策", "Decision summary", "相关关系图", "aria-label=\"Planning graph\"", "存在更多活动记录", "Comment &lt;script&gt;alert(3)&lt;/script&gt;", "Work done &lt;b&gt;today&lt;/b&gt;", "current.go", "old/&lt;script&gt;alert(5)&lt;/script&gt;/**", "active", "released", "存在更多资源预留"} {
 			if !strings.Contains(html, want) {
 				t.Fatalf("rich detail missing %q:\n%s", want, html)
 			}
@@ -243,7 +252,7 @@ func TestRenderIssueDetailHTMLCoverage(t *testing.T) {
 		if err != nil {
 			t.Fatalf("renderIssueDetailHTML: %v", err)
 		}
-		for _, want := range []string{"ISSUE-301", "Not archived.", "No labels assigned.", "No description provided.", "No acceptance criteria provided.", "No blocked reason provided.", "No activity recorded yet.", "No current or historical reservations.", "Rhizome issue detail"} {
+		for _, want := range []string{"ISSUE-301", "未归档", "未分配标签", "未提供任务说明", "未提供验收标准", "未提供阻塞原因", "暂无活动记录", "无历史或当前资源预留", "Agent Board"} {
 			if !strings.Contains(html, want) {
 				t.Fatalf("sparse detail missing %q:\n%s", want, html)
 			}

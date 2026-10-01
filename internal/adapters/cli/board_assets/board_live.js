@@ -81,9 +81,14 @@
         if (!response.ok) {
           throw new Error("request failed");
         }
-        this.etag = response.headers.get("ETag") || this.etag;
+        const nextETag = response.headers.get("ETag") || this.etag;
         const pageHTML = await this.fetchPageHTML();
-        this.refreshContent(pageHTML);
+        // Only remember the new entity tag once the DOM actually took the new
+        // content. Storing it while a write form has focus would make the next
+        // poll answer 304 and the skipped update would never arrive.
+        if (this.refreshContent(pageHTML)) {
+          this.etag = nextETag;
+        }
         this.clearStale();
         this.backoffMs = 1000;
         this.schedule();
@@ -109,7 +114,7 @@
       const doc = parser.parseFromString(body, "text/html");
       const newMain = doc.querySelector("main[data-board-main]");
       if (!newMain || !this.root) {
-        return;
+        return false;
       }
       const previousOpenDetails = [];
       this.root.querySelectorAll("details[id]").forEach((detail) => {
@@ -119,6 +124,19 @@
       });
       const activeElement = this.documentImpl.activeElement;
       const focusedID = activeElement && activeElement.id ? activeElement.id : "";
+      if (activeElement && typeof activeElement.closest === "function" && activeElement.closest("form[data-board-write-form]")) {
+        // Never replace the page while someone is typing in a write form: the
+        // refresh would silently discard their input mid-edit.
+        this.lastSuccessfulRefreshAt = this.nowImpl();
+        this.renderStaleStatus();
+        return false;
+      }
+      // Check if modal is open (New Task modal)
+      if (this.windowImpl.__agentBoardModalOpen && this.windowImpl.__agentBoardModalOpen()) {
+        this.lastSuccessfulRefreshAt = this.nowImpl();
+        this.renderStaleStatus();
+        return false;
+      }
       const previousScrollY = this.windowImpl.scrollY;
       this.root.innerHTML = newMain.innerHTML;
       this.root.querySelectorAll("details[id]").forEach((detail) => {
@@ -135,6 +153,7 @@
       this.windowImpl.scrollTo(0, previousScrollY);
       this.lastSuccessfulRefreshAt = this.nowImpl();
       this.renderStaleStatus();
+      return true;
     }
 
     markStale(){
@@ -161,18 +180,21 @@
         return;
       }
       if (!this.statusElement) {
-        this.statusElement = this.documentImpl.createElement("div");
-        this.statusElement.id = "board-refresh-status";
-        this.statusElement.setAttribute("role", "status");
-        this.statusElement.setAttribute("aria-live", "polite");
-        this.statusElement.style.cssText = "margin-bottom: 0.75rem; color: #b45309; font-size: 0.875rem;";
-        if (this.root.parentNode) {
-          this.root.parentNode.insertBefore(this.statusElement, this.root);
+        this.statusElement = this.documentImpl.getElementById("board-refresh-status");
+        if (!this.statusElement) {
+          this.statusElement = this.documentImpl.createElement("div");
+          this.statusElement.id = "board-refresh-status";
+          this.statusElement.setAttribute("role", "status");
+          this.statusElement.setAttribute("aria-live", "polite");
+          this.statusElement.className = "board-stale";
+          if (this.root.parentNode) {
+            this.root.parentNode.insertBefore(this.statusElement, this.root);
+          }
         }
       }
       if (this.staleStatus) {
         const stamp = this.lastSuccessfulRefreshAt ? this.lastSuccessfulRefreshAt.toLocaleTimeString() : "unknown";
-        this.statusElement.textContent = "stale • last success " + stamp;
+        this.statusElement.textContent = "stale \u2022 last success " + stamp;
         this.statusElement.hidden = false;
         return;
       }
@@ -186,10 +208,10 @@
     const endpoint = root.getAttribute("data-board-endpoint") || "/api/board";
     const pageRoute = root.getAttribute("data-board-route") || "/";
     const client = new BoardLiveClient(root, {endpoint: endpoint, pageRoute: pageRoute, intervalMs: 15000});
-    window.__rhizomeBoardLiveClient = client;
+    window.__agentBoardLiveClient = client;
   }
 
-  if (window.__rhizomeBoardLiveTestHooks) {
-    window.__rhizomeBoardLiveTestHooks.BoardLiveClient = BoardLiveClient;
+  if (window.__agentBoardLiveTestHooks) {
+    window.__agentBoardLiveTestHooks.BoardLiveClient = BoardLiveClient;
   }
 })();

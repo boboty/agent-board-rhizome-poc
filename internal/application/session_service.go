@@ -85,6 +85,7 @@ func (service *AgentSessionService) createSession(ctx context.Context, input dom
 		AgentLabel:    copyApplicationString(input.AgentLabel),
 		Model:         copyApplicationString(input.Model),
 		InstanceKey:   copyApplicationString(input.InstanceKey),
+		Worktree:      copyApplicationString(input.Worktree),
 		StartedAt:     now,
 		LastSeenAt:    now,
 	}

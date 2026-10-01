@@ -125,11 +125,12 @@ func (repository *IssueRepository) CreateIssue(ctx context.Context, command port
 			id, sequence_no, type, title, description, acceptance_criteria,
 			status, priority, parent_id, blocked_reason, version,
 			created_by_session_id, created_at, updated_at, closed_at,
-			archived_at, archived_by_session_id
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, NULL, ?, ?, NULL, NULL, NULL)`,
+			archived_at, archived_by_session_id, ready_rank
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, NULL, ?, ?, NULL, NULL, NULL, ?)`,
 			command.ID, sequenceNo, input.Type, input.Title, nullableString(input.Description),
 			nullableString(input.AcceptanceCriteria), input.Status, input.Priority,
 			nullableString(resolvedParentID), nullableString(input.BlockedReason), timestamp, timestamp,
+			nullableInt64Pointer(input.ReadyRank),
 		); err != nil {
 			return err
 		}
@@ -146,6 +147,7 @@ func (repository *IssueRepository) CreateIssue(ctx context.Context, command port
 			Type:       input.Type,
 			Status:     input.Status,
 			Priority:   input.Priority,
+			ReadyRank:  copyOptionalInt64(input.ReadyRank),
 			ParentID:   resolvedParentID,
 			Labels:     labelNames(labels),
 		})
@@ -169,6 +171,7 @@ func (repository *IssueRepository) CreateIssue(ctx context.Context, command port
 			AcceptanceCriteria: input.AcceptanceCriteria,
 			Status:             input.Status,
 			Priority:           input.Priority,
+			ReadyRank:          copyOptionalInt64(input.ReadyRank),
 			ParentID:           resolvedParentID,
 			BlockedReason:      input.BlockedReason,
 			Version:            1,
@@ -372,11 +375,12 @@ func (repository *IssueRepository) UpdateIssue(ctx context.Context, command port
 		res, err := tx.ExecContext(ctx, `UPDATE issues SET
 			type = ?, title = ?, description = ?, acceptance_criteria = ?,
 			status = ?, priority = ?, parent_id = ?, blocked_reason = ?,
-			version = ?, updated_at = ?, closed_at = ?
+			version = ?, updated_at = ?, closed_at = ?, ready_rank = ?
 			WHERE id = ? AND version = ? AND archived_at IS NULL`,
 			next.Type, next.Title, nullableString(next.Description), nullableString(next.AcceptanceCriteria),
 			next.Status, next.Priority, nullableString(next.ParentID), nullableString(next.BlockedReason),
-			next.Version, timestamp, nullableTime(next.ClosedAt), current.ID, command.ExpectedVersion,
+			next.Version, timestamp, nullableTime(next.ClosedAt), nullableInt64Pointer(next.ReadyRank),
+			current.ID, command.ExpectedVersion,
 		)
 		if err != nil {
 			return err
@@ -761,19 +765,20 @@ func classifyConditionalUpdateFailure(ctx context.Context, tx Executor, id strin
 const issueProjectionSelect = `SELECT id, sequence_no, type, title, description, acceptance_criteria,
 	status, priority, parent_id, blocked_reason, version,
 	created_by_session_id, created_at, updated_at, closed_at,
-	archived_at, archived_by_session_id FROM issues`
+	archived_at, archived_by_session_id, ready_rank FROM issues`
 
 func scanIssueProjection(row *sql.Row) (domain.Issue, error) {
 	var (
 		id, issueType, title, status, priority, createdAt, updatedAt  string
 		description, acceptanceCriteria, parentID, blockedReason      sql.NullString
 		createdBySessionID, closedAt, archivedAt, archivedBySessionID sql.NullString
+		readyRank                                                     sql.NullInt64
 		sequenceNo, version                                           int64
 	)
 	if err := scanIssueProjectionColumns(row, &id, &sequenceNo, &issueType, &title, &description,
 		&acceptanceCriteria, &parentID, &blockedReason, &version,
 		&createdBySessionID, &closedAt, &archivedAt, &archivedBySessionID,
-		&status, &priority, &createdAt, &updatedAt,
+		&status, &priority, &createdAt, &updatedAt, &readyRank,
 	); err != nil {
 		if err != sql.ErrNoRows {
 			return domain.Issue{}, domain.WrapError(err, domain.CodeStorageCorrupt, "stored issue projection is invalid", false)
@@ -782,25 +787,26 @@ func scanIssueProjection(row *sql.Row) (domain.Issue, error) {
 	}
 	return parseIssueProjectionColumns(id, sequenceNo, issueType, title, description, acceptanceCriteria,
 		parentID, blockedReason, status, priority, version, createdBySessionID, createdAt, updatedAt,
-		closedAt, archivedAt, archivedBySessionID)
+		closedAt, archivedAt, archivedBySessionID, readyRank)
 }
 
 func scanIssueProjectionColumns(scanner labelScanner, id *string, sequenceNo *int64, issueType, title *string,
 	description, acceptanceCriteria, parentID, blockedReason *sql.NullString, version *int64,
 	createdBySessionID, closedAt, archivedAt, archivedBySessionID *sql.NullString,
-	status, priority, createdAt, updatedAt *string,
+	status, priority, createdAt, updatedAt *string, readyRank *sql.NullInt64,
 ) error {
 	return scanner.Scan(
 		id, sequenceNo, issueType, title, description, acceptanceCriteria,
 		status, priority, parentID, blockedReason, version,
 		createdBySessionID, createdAt, updatedAt, closedAt, archivedAt, archivedBySessionID,
+		readyRank,
 	)
 }
 
 func parseIssueProjectionColumns(id string, sequenceNo int64, issueType, title string,
 	description, acceptanceCriteria, parentID, blockedReason sql.NullString,
 	status, priority string, version int64, createdBySessionID sql.NullString, createdAt, updatedAt string,
-	closedAt, archivedAt, archivedBySessionID sql.NullString,
+	closedAt, archivedAt, archivedBySessionID sql.NullString, readyRank sql.NullInt64,
 ) (domain.Issue, error) {
 	parsedType, err := domain.ParseType(issueType)
 	if err != nil {
@@ -840,6 +846,7 @@ func parseIssueProjectionColumns(id string, sequenceNo int64, issueType, title s
 		AcceptanceCriteria:  nullableStringPointer(acceptanceCriteria),
 		Status:              parsedStatus,
 		Priority:            parsedPriority,
+		ReadyRank:           nullableInt64Scan(readyRank),
 		ParentID:            nullableStringPointer(parentID),
 		BlockedReason:       nullableStringPointer(blockedReason),
 		Version:             version,
@@ -859,6 +866,7 @@ type issueUpdatedPayload struct {
 	Type                  *domain.Type     `json:"type,omitempty"`
 	Priority              *domain.Priority `json:"priority,omitempty"`
 	Status                *domain.Status   `json:"status,omitempty"`
+	ReadyRank             *int64           `json:"ready_rank,omitempty"`
 	ParentID              *string          `json:"parent_id,omitempty"`
 	DescriptionSet        *bool            `json:"description_set,omitempty"`
 	AcceptanceCriteriaSet *bool            `json:"acceptance_criteria_set,omitempty"`
@@ -882,6 +890,8 @@ func newIssueUpdatedPayload(next domain.Issue, changedFields []string) issueUpda
 		case "status":
 			value := next.Status
 			payload.Status = &value
+		case "ready_rank":
+			payload.ReadyRank = copyOptionalInt64(next.ReadyRank)
 		case "parent_id":
 			payload.ParentID = copyOptionalString(next.ParentID)
 		case "description":
@@ -915,11 +925,27 @@ func copyOptionalString(value *string) *string {
 	return &copy
 }
 
+func copyOptionalInt64(value *int64) *int64 {
+	if value == nil {
+		return nil
+	}
+	copy := *value
+	return &copy
+}
+
 func nullableStringPointer(value sql.NullString) *string {
 	if !value.Valid {
 		return nil
 	}
 	result := value.String
+	return &result
+}
+
+func nullableInt64Scan(value sql.NullInt64) *int64 {
+	if !value.Valid {
+		return nil
+	}
+	result := value.Int64
 	return &result
 }
 
@@ -952,6 +978,7 @@ type issueCreatedPayload struct {
 	Type       domain.Type     `json:"type"`
 	Status     domain.Status   `json:"status"`
 	Priority   domain.Priority `json:"priority"`
+	ReadyRank  *int64          `json:"ready_rank,omitempty"`
 	ParentID   *string         `json:"parent_id,omitempty"`
 	Labels     []string        `json:"labels,omitempty"`
 }

@@ -7,6 +7,11 @@ import (
 
 const MaxSessionMetadataRunes = 256
 
+// MaxSessionWorktreeRunes bounds the optional worktree path recorded on an
+// agent session. It is larger than the other metadata bound because an
+// absolute worktree path is routinely longer than a client or model name.
+const MaxSessionWorktreeRunes = 1024
+
 // AgentSession is the durable audit record for one agent connection.
 type AgentSession struct {
 	ID            string
@@ -15,6 +20,7 @@ type AgentSession struct {
 	AgentLabel    *string
 	Model         *string
 	InstanceKey   *string
+	Worktree      *string
 	StartedAt     time.Time
 	LastSeenAt    time.Time
 	EndedAt       *time.Time
@@ -27,6 +33,7 @@ type CreateAgentSessionInput struct {
 	AgentLabel    *string
 	Model         *string
 	InstanceKey   *string
+	Worktree      *string
 }
 
 // Validate returns normalized metadata and defensive copies of optional values.
@@ -53,10 +60,21 @@ func (input CreateAgentSessionInput) Validate() (CreateAgentSessionInput, error)
 	if normalized.InstanceKey, err = normalizeSessionMetadata("instance_key", input.InstanceKey); err != nil {
 		return CreateAgentSessionInput{}, err
 	}
+	if normalized.Worktree, err = normalizeSessionWorktree(input.Worktree); err != nil {
+		return CreateAgentSessionInput{}, err
+	}
 	return normalized, nil
 }
 
 func normalizeSessionMetadata(field string, value *string) (*string, error) {
+	return normalizeSessionText(field, value, MaxSessionMetadataRunes)
+}
+
+func normalizeSessionWorktree(value *string) (*string, error) {
+	return normalizeSessionText("worktree", value, MaxSessionWorktreeRunes)
+}
+
+func normalizeSessionText(field string, value *string, maximum int) (*string, error) {
 	if value == nil {
 		return nil, nil
 	}
@@ -64,7 +82,7 @@ func normalizeSessionMetadata(field string, value *string) (*string, error) {
 	if normalized == "" {
 		return nil, validationError(field, "REQUIRED", "must be nonblank when provided")
 	}
-	if err := ValidateText(field, normalized, MaxSessionMetadataRunes); err != nil {
+	if err := ValidateText(field, normalized, maximum); err != nil {
 		return nil, err
 	}
 	return &normalized, nil
@@ -77,6 +95,7 @@ func (session AgentSession) Clone() AgentSession {
 	result.AgentLabel = copySessionString(session.AgentLabel)
 	result.Model = copySessionString(session.Model)
 	result.InstanceKey = copySessionString(session.InstanceKey)
+	result.Worktree = copySessionString(session.Worktree)
 	if session.EndedAt != nil {
 		ended := *session.EndedAt
 		result.EndedAt = &ended
