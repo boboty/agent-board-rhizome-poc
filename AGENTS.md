@@ -6,6 +6,8 @@ Use the configured `rhizome-mcp` server as the source of truth for active work a
 
 Claim tracked work through the rhizome-mcp server before editing. Keep the returned lease token private and available until the attempt completes, renewing before expiry and saving restartable checkpoints. Finish every attempt with its truthful outcome, verification actually performed, and next steps.
 
+The Orchestrator (not the Developer or Verifier) is the sole owner of task-level board state transitions (READY → IN PROGRESS → DONE / BLOCKED). Developer and Verifier execute work and return evidence (PASS / RC / BLOCKED + evidence) to the Orchestrator; they never directly advance the task-level board state.
+
 See [the agent workflow guide](.github/skills/rhizome-task-workflow/references/agent-workflow.md) for the complete select/claim/execute/finish workflow.
 
 Never write `in_progress`; it is derived from an active lease. Never maintain the backlog or implementation status in Markdown.

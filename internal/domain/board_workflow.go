@@ -225,12 +225,12 @@ type BoardWorkflowPlacementInput struct {
 	// is deliberately not consulted: whether the task is being developed,
 	// verified, or reworked, an active attempt means the task is in progress.
 	ActiveAttempt *ActiveAttemptSummary
-	// ExecutionStarted reports whether the task has ever been claimed, worked
-	// on, and undergone review — proof that execution began. The application
-	// layer sets this from the presence of a changes_requested review round
-	// (the clearest evidence that work happened). A stored-ready issue whose
-	// execution has started stays IN PROGRESS until the task reaches a terminal
-	// column; a fresh stored-ready issue with no execution history is READY.
+	// ExecutionStarted reports whether the Orchestrator has started executing
+	// this task (proven by the presence of a changes_requested review round —
+	// the clearest evidence that work was attempted). A stored-ready issue
+	// whose execution has started stays IN PROGRESS until the Orchestrator
+	// decides it is DONE (PASS) or BLOCKED (cannot continue); a fresh
+	// stored-ready issue with no execution history is READY.
 	ExecutionStarted bool
 }
 
@@ -241,6 +241,11 @@ type BoardWorkflowPlacementInput struct {
 // attempt, so the board's column assignment cannot drift from the projection
 // rules, and no review, verification, or changes-requested signal can move a
 // card between columns.
+//
+// The Orchestrator is the sole owner of task-level state transitions.
+// Developer and Verifier outcomes (PASS, RC, BLOCKED) are evidence that
+// informs the projection derivation; they never directly advance the
+// board-level state.
 //
 // The rules, in order, are:
 //
@@ -254,17 +259,17 @@ type BoardWorkflowPlacementInput struct {
 //  5. stored review -> IN PROGRESS. The delivery exists and verification is
 //     the task's current phase; whether a verifier holds a review attempt
 //     right now is execution detail.
-//  6. stored blocked -> BLOCKED, whatever caused the block (external
-//     dependency, workflow gate, human decision). The cause is card detail;
-//     the board does not guess which kind it was.
+//  6. stored blocked -> BLOCKED. The Orchestrator owns the decision to stop
+//     here; the cause is card detail, and the board does not guess which kind.
 //  7. stored ready:
 //     a. ExecutionStarted (proven by a changes_requested review round) ->
-//     IN PROGRESS. The task has begun executing and has not yet reached a
-//     terminal column; an RC round is proof that work happened, and
-//     dropping back to READY would let it be re-started under a new
-//     orchestrator without an explicit signal from the current one.
+//     IN PROGRESS. The Orchestrator has already started this task and has
+//     not yet moved it to DONE or BLOCKED. An RC round is proof the task
+//     has progressed beyond initial READY, so dropping back to READY would
+//     let it be re-started under a new orchestrator without an explicit
+//     signal from the current one.
 //     b. otherwise -> READY. The task is claimable and has never been
-//     executed.
+//     executed (the Orchestrator has not yet started it).
 //  8. anything else -> unprojected with a reason.
 func DeriveBoardWorkflowPlacement(input BoardWorkflowPlacementInput) (BoardWorkflowColumn, string) {
 	issue := input.Issue

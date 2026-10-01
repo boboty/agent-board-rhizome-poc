@@ -19,21 +19,26 @@ The first version is intentionally based on practices already proven in real pro
 
 Task defines the work. Agent Board holds shared workflow state. Workspace/Git holds the delivery. Agent activity holds execution detail. Independent Verifier supplies completion evidence.
 
+**Orchestrator is the sole owner of task-level lifecycle transitions.** Developer and Verifier execute work and return evidence (PASS / RC / BLOCKED + evidence) to the Orchestrator; they never directly advance the board-level state (READY / IN PROGRESS / DONE / BLOCKED).
+
 Normal flow:
 
 ```text
 READY
-  -> Developer execution                        (task state: IN PROGRESS)
-  -> verification                               (task state: IN PROGRESS)
-      -> PASS -> DONE                           (task state: DONE)
+  -> Orchestrator starts task                    (task state: IN PROGRESS)
+  -> Developer execution                         (task state: IN PROGRESS)
+  -> verification                                (task state: IN PROGRESS)
+      -> PASS -> DONE                            (task state: DONE)
       -> RC   -> Developer correction -> new verification
-                                                (IN PROGRESS: execution has
-                                                 started, so the task stays
-                                                 IN PROGRESS across the RC
-                                                 round; only an explicit
-                                                 BLOCKED could stop it)
+                                                  (task state: IN PROGRESS —
+                                                   execution has started,
+                                                   so the task stays
+                                                   IN PROGRESS across the RC
+                                                   round; only an explicit
+                                                   Orchestrator BLOCKED
+                                                   could stop it)
       -> DECISION REQUIRED -> human decision -> resume or close
-                                                (task state: BLOCKED)
+                                                  (task state: BLOCKED)
 ```
 
 The Agent Board shows the four task-level states in parentheses. Verification,

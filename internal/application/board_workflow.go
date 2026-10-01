@@ -226,8 +226,10 @@ func (service *BoardService) buildBoardWorkflow(ctx context.Context, sources boa
 			rounds = signal.changesRequestedRounds
 		}
 		// Placement reads the stored status, the active attempt, and whether the
-		// task has execution history (proven by a changes_requested round). The
-		// review signal below is attached to the card as detail.
+		// task has execution history (proven by a changes_requested round), which
+		// is evidence the Orchestrator uses to decide the task is IN PROGRESS
+		// rather than fresh READY. The review signal below is attached to the
+		// card as detail only; it never drives a column move directly.
 		column, reason := domain.DeriveBoardWorkflowPlacement(domain.BoardWorkflowPlacementInput{
 			Issue:            issue.Issue,
 			ActiveAttempt:    attempt,

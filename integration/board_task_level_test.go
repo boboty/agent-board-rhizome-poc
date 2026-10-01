@@ -85,10 +85,17 @@ func boardWorkflowCreateReviewRequest(t *testing.T, session *mcp.ClientSession, 
 
 // TestIntegrationBoardTaskLevelLifecycleStaysInFourColumns is AB-5 acceptance
 // #14 end to end against real SQLite and the real tool/HTTP surfaces: a task
-// walks READY -> developer active -> verification -> changes-requested rework
-// -> re-verification -> DONE, and a second task walks IN PROGRESS -> blocked.
-// Every stage is asserted through the board projection, and no stage ever
-// creates a fifth column.
+// walks READY -> Orchestrator starts -> developer active -> verification ->
+// changes-requested rework -> re-verification -> PASS -> DONE, and a second
+// task walks IN PROGRESS -> BLOCKED. Every stage is asserted through the board
+// projection, and no stage ever creates a fifth column.
+//
+// The Orchestrator is the sole owner of task-level state transitions.
+// Developer and Verifier execute work and return evidence; they never directly
+// advance the board-level state. Throughout the Developer -> Verification ->
+// RC -> Correction -> Reverification -> PASS cycle, the task stays IN PROGRESS.
+// Only PASS moves to DONE, and only an explicit stop (blocked review) moves
+// to BLOCKED.
 func TestIntegrationBoardTaskLevelLifecycleStaysInFourColumns(t *testing.T) {
 	t.Parallel()
 	env := newIntegrationEnvironment(t)

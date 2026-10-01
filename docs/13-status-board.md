@@ -235,10 +235,12 @@ BLOCKED with the review outcome as card detail.
 
 ### 8.1. Derivation rules
 
-Each issue is placed by the first matching rule, and the derivation reads only
-the stored status, the active attempt, and an `ExecutionStarted` boolean
-(proven by a `changes_requested` review round — the clearest evidence that
-real work happened):
+The derivation reads only the stored status, the active attempt, and an
+`ExecutionStarted` boolean (proven by a `changes_requested` review round — the
+clearest evidence that real work happened). The Orchestrator is the sole owner
+of task-level state transitions: Developer and Verifier outcomes are evidence
+that inform the projection, never direct column moves. Each issue is placed by
+the first matching rule:
 
 1. archived → not projected;
 2. `done` → DONE;
@@ -247,13 +249,15 @@ real work happened):
    status, because a claimed issue keeps its stored status while its effective
    status is derived);
 5. `review` → IN PROGRESS;
-6. `blocked` → BLOCKED;
+6. `blocked` → BLOCKED. The Orchestrator owns the decision to stop here;
+    the cause is card detail, and the board never guesses which kind it was.
 7. `ready` — then:
-   a. `ExecutionStarted` → IN PROGRESS. The task has begun executing and has
-      not yet reached a terminal column; a `changes_requested` round is proof
-      that work happened, and dropping back to READY would let it be
-      re-started under a new orchestrator without an explicit signal from the
-      current one. The orchestrator must move it to BLOCKED to stop.
+   a. `ExecutionStarted` → IN PROGRESS. The Orchestrator has already started
+      this task and has not yet moved it to DONE or BLOCKED. A
+      `changes_requested` round is proof that work was attempted, and dropping
+      back to READY would let it be re-started under a new orchestrator without
+      an explicit signal from the current one. Only the Orchestrator moves it
+      to BLOCKED to stop.
    b. otherwise → READY. The task is claimable and never been executed.
 8. anything else → not projected.
 

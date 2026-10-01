@@ -27,11 +27,12 @@ The standard defines the workflow. The board makes that workflow operable across
 
 ## Core principles
 
-- Keep developers in their existing tools. Codex, Claude Code, OpenCode, Paseo, Orca, and similar tools should be able to create and advance tasks directly.
+- **Orchestrator is the sole owner of task-level lifecycle transitions** (READY → IN PROGRESS → DONE / BLOCKED). Developer and Verifier execute work and return evidence (PASS / RC / BLOCKED + evidence), but never directly advance the task-level board state.
+- Keep developers in their existing tools. Codex, Claude Code, OpenCode, Paseo, Orca, and similar tools can create tasks, execute work, and report results to the Orchestrator. The Orchestrator drives the task-level state.
 - The board is the shared task state, not an agent runtime. Agent execution remains the responsibility of the harness or coding tool.
 - Tasks may be created cheaply, but execution begins only when the task is ready to be worked and verified.
 - Developer completion is not final completion. Independent verification is required before DONE.
-- RC means verifier rejection followed by developer correction and a new independent verification round.
+- RC means verifier rejection followed by developer correction and a new independent verification round. Throughout this cycle the task-level state stays IN PROGRESS — only PASS moves to DONE, and only an explicit BLOCKED stops the task.
 - Human intervention should be explicit and limited to decisions that require authority or judgment.
 - Do not grow into Jira. V0.1 has a READY queue, not sprint planning, estimates, deadlines, or portfolio management.
 
