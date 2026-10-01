@@ -125,10 +125,12 @@ type BoardUIStrings struct {
 	ReviewRequestsTruncated string // "仅显示前 100 个验收请求"
 
 	// Planning graph section
-	PlanningGraph  string // "任务关系"
-	MermaidSource  string // "Mermaid 源码（复制到任一 Mermaid 渲染器）"
-	GraphNodeCount string // "{{.Nodes}} 个节点，{{.Edges}} 条边，{{.Entries}} 个入口点，{{.Blocking}} 个阻塞节点"
-	GraphTruncated string // "（已截断）"
+	PlanningGraph      string // "任务关系"
+	MermaidSource      string // "Mermaid 源码（复制到任一 Mermaid 渲染器）"
+	GraphNodeCount     string // "{{.Nodes}} 个节点，{{.Edges}} 条边，{{.Entries}} 个入口点，{{.Blocking}} 个阻塞节点"
+	GraphSummaryFormat string // "%d 个节点，%d 条边，%d 个入口点，%d 个阻塞节点"
+	GraphTruncated     string // "（已截断）"
+	GraphSummarySuffix string // "。"
 
 	// Empty states
 	NoCards     string // "暂无卡片"
@@ -162,7 +164,6 @@ type BoardUIStrings struct {
 	WorkflowGates          string // "工作流关卡"
 	GatesNoneApply         string // "该任务无需通过工作流关卡"
 	GatesSatisfied         string // "所有关卡条件均已满足"
-	GatesStatusLine        string // "在 {{.Point}} 节点评估（基于 {{.Source}}）：{{.Satisfied}}/{{.Total}} 个条件满足"
 	LatestAttemptSection   string // "最近执行"
 	OpenReviewSection      string // "验收中"
 	LatestDecisionSection  string // "最新决策"
@@ -184,12 +185,16 @@ type BoardUIStrings struct {
 	NoAcceptanceCriteria string // "未提供验收标准"
 	NoBlockedReason      string // "未提供阻塞原因"
 
-	// Status line on issue detail
-	StatusLine string // "存储状态：{{.Stored}} · 有效状态：{{.Effective}} · 类型：{{.Type}} · 优先级：{{.Priority}}"
+	// Status line on issue detail (fmt.Sprintf format string)
+	StatusLineFormat string // "存储状态：%s · 有效状态：%s · 类型：%s · 优先级：%s"
 
-	// Gate detail text
-	GateSourceLive     string // "实时策略"
-	GateSourceSnapshot string // "执行快照（指纹 {{.Fingerprint}}）"
+	// Gate detail text (fmt.Sprintf format strings)
+	GateSourceLive        string // "实时策略"
+	GateSourceSnapshotFmt string // "执行快照（指纹 %s）"
+	GateNoRequirement     string // "无需关卡"
+	GateProgressFormat    string // "%d/%d 已满足"
+	GateStatusLineFormat  string // "在 %s 节点评估（基于 %s）：%d/%d 个条件满足"
+	GateDash              string // "—"
 
 	// Root issue section
 	RootIssueSection string // "根任务"
@@ -207,6 +212,9 @@ type BoardUIStrings struct {
 
 	// Unprojected default statuses
 	DefaultStatus string // "状态"
+
+	// Common em dash fallback
+	EmDash string // "—"
 }
 
 // boardUIStringsZHCN returns the default zh-CN locale.
@@ -314,8 +322,10 @@ func boardUIStringsZHCN() BoardUIStrings {
 		NoOpenReviewRequests:    "暂无待验收",
 		ReviewRequestsTruncated: "仅显示前 100 个验收请求",
 
-		PlanningGraph: "任务关系",
-		MermaidSource: "Mermaid 源码（复制到任一 Mermaid 渲染器）",
+		PlanningGraph:      "任务关系",
+		GraphSummaryFormat: "%d 个节点，%d 条边，%d 个入口点，%d 个阻塞节点",
+		GraphTruncated:     "（已截断）",
+		GraphSummarySuffix: "。",
 
 		NoCards:     "暂无卡片",
 		NoIssuesYet: "暂无任务",
@@ -365,12 +375,18 @@ func boardUIStringsZHCN() BoardUIStrings {
 		NoAcceptanceCriteria: "未提供验收标准",
 		NoBlockedReason:      "未提供阻塞原因",
 
-		GateSourceLive:     "实时策略",
-		GateSourceSnapshot: "执行快照（指纹）",
-		RootIssueSection:   "根任务",
-		GateRequirementCol: "需求",
-		GateReasonCol:      "原因",
-		GateNextActionCol:  "下一步操作",
-		DefaultStatus:      "状态",
+		StatusLineFormat:      "存储状态：%s · 有效状态：%s · 类型：%s · 优先级：%s",
+		GateSourceLive:        "实时策略",
+		GateSourceSnapshotFmt: "执行快照（指纹 %s）",
+		GateNoRequirement:     "无需关卡",
+		GateProgressFormat:    "%d/%d 已满足",
+		GateStatusLineFormat:  "在 %s 节点评估（基于 %s）：%d/%d 个条件满足",
+		GateDash:              "—",
+		EmDash:                "—",
+		RootIssueSection:      "根任务",
+		GateRequirementCol:    "需求",
+		GateReasonCol:         "原因",
+		GateNextActionCol:     "下一步操作",
+		DefaultStatus:         "状态",
 	}
 }

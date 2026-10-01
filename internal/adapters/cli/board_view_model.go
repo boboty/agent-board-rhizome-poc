@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"fmt"
 	"html/template"
 	"strconv"
 	"strings"
@@ -265,6 +266,7 @@ type issueDetailActivityItemViewModel struct {
 }
 
 func newBoardStaticPageViewModel(result domain.BoardResult) boardStaticPageViewModel {
+	ui := boardUIStringsZHCN()
 	mapping := issueDisplayIDMap(result.PlanningGraph.Nodes)
 	vm := boardStaticPageViewModel{
 		Title:                       "Agent Board",
@@ -277,13 +279,13 @@ func newBoardStaticPageViewModel(result domain.BoardResult) boardStaticPageViewM
 		BlockedIssues:               make([]boardIssueRowViewModel, 0, len(result.BlockedIssues)),
 		ReviewRequests:              make([]boardReviewRequestViewModel, 0, len(result.ReviewRequests)),
 		PlanningGraphSVG:            template.HTML(renderBoardGraphSVG(result.PlanningGraph)),
-		PlanningGraphSummary:        buildPlanningGraphSummary(result.PlanningGraph),
+		PlanningGraphSummary:        buildPlanningGraphSummary(result.PlanningGraph, ui),
 		PlanningGraphMermaid:        renderMermaid(result.PlanningGraph),
 		ActiveAttemptsTruncated:     result.Truncation.ActiveAttempts,
 		ActiveReservationsTruncated: result.Truncation.ActiveReservations,
 		BlockedIssuesTruncated:      result.Truncation.BlockedIssues,
 		ReviewRequestsTruncated:     result.Truncation.ReviewRequests,
-		Workflow:                    newBoardWorkflowViewModel(result.Workflow, false, false, ""),
+		Workflow:                    newBoardWorkflowViewModel(result.Workflow, false, false, "", ui),
 	}
 	for _, count := range result.StatusCounts {
 		vm.StatusCounts = append(vm.StatusCounts, boardStatusCountViewModel{Status: string(count.EffectiveStatus), Count: int(count.Count)})
@@ -298,16 +300,16 @@ func newBoardStaticPageViewModel(result domain.BoardResult) boardStaticPageViewM
 			IssueLabel:         issueDisplayLabel(attempt.IssueID, attempt.IssueDisplayID, mapping),
 			IssueTitle:         attempt.IssueTitle,
 			Kind:               string(attempt.Kind),
-			SessionLabel:       sessionFieldValue(attempt.SessionLabel),
-			SessionInstanceKey: sessionFieldValue(attempt.SessionInstanceKey),
-			SessionClientName:  sessionFieldValue(attempt.SessionClientName),
-			SessionModel:       sessionFieldValue(attempt.SessionModel),
-			SessionWorktree:    sessionFieldValue(attempt.SessionWorktree),
+			SessionLabel:       sessionFieldValue(attempt.SessionLabel, ui),
+			SessionInstanceKey: sessionFieldValue(attempt.SessionInstanceKey, ui),
+			SessionClientName:  sessionFieldValue(attempt.SessionClientName, ui),
+			SessionModel:       sessionFieldValue(attempt.SessionModel, ui),
+			SessionWorktree:    sessionFieldValue(attempt.SessionWorktree, ui),
 			StartedAt:          attempt.StartedAt.Format(time.RFC3339),
 			LeaseExpiresAt:     attempt.LeaseExpiresAt.Format(time.RFC3339),
 			Reservations:       reservations,
 			HasReservations:    len(reservations) > 0,
-			GateProgress:       boardGateProgressText(gates, hasGates),
+			GateProgress:       boardGateProgressText(gates, hasGates, ui),
 			GateUnmet:          boardGateUnmetLines(gates),
 			HasGateUnmet:       len(gates.Unmet) > 0,
 		})
@@ -332,6 +334,7 @@ func newBoardStaticPageViewModel(result domain.BoardResult) boardStaticPageViewM
 }
 
 func newBoardServedPageViewModel(result domain.BoardResult, state boardPageState) boardServedPageViewModel {
+	ui := boardUIStringsZHCN()
 	search := state.Search
 	bannerMessage, bannerIsError := boardBannerMessage(state.Notice, state.ErrorCode)
 	mapping := issueDisplayIDMap(result.PlanningGraph.Nodes)
@@ -339,7 +342,7 @@ func newBoardServedPageViewModel(result domain.BoardResult, state boardPageState
 		Title:                       "Agent Board",
 		GeneratedAt:                 result.GeneratedAt.Format(time.RFC3339),
 		Style:                       template.CSS(boardHTMLStyle),
-		UI:                          boardUIStringsZHCN(),
+		UI:                          ui,
 		LiveRefreshScript:           template.JS(boardLiveRefreshScript),
 		SearchScript:                template.JS(boardSearchScript),
 		SearchQuery:                 search.Query,
@@ -362,13 +365,13 @@ func newBoardServedPageViewModel(result domain.BoardResult, state boardPageState
 		BlockedIssues:               make([]boardIssueRowViewModel, 0, len(result.BlockedIssues)),
 		ReviewRequests:              make([]boardReviewRequestViewModel, 0, len(result.ReviewRequests)),
 		PlanningGraphSVG:            template.HTML(renderServedBoardGraphSVG(result.PlanningGraph)),
-		PlanningGraphSummary:        buildPlanningGraphSummary(result.PlanningGraph),
+		PlanningGraphSummary:        buildPlanningGraphSummary(result.PlanningGraph, ui),
 		PlanningGraphMermaid:        renderMermaid(result.PlanningGraph),
 		ActiveAttemptsTruncated:     result.Truncation.ActiveAttempts,
 		ActiveReservationsTruncated: result.Truncation.ActiveReservations,
 		BlockedIssuesTruncated:      result.Truncation.BlockedIssues,
 		ReviewRequestsTruncated:     result.Truncation.ReviewRequests,
-		Workflow:                    newBoardWorkflowViewModel(result.Workflow, true, state.CSRFToken != "", state.CSRFToken),
+		Workflow:                    newBoardWorkflowViewModel(result.Workflow, true, state.CSRFToken != "", state.CSRFToken, ui),
 	}
 	for _, count := range result.StatusCounts {
 		vm.StatusCounts = append(vm.StatusCounts, boardStatusCountViewModel{Status: string(count.EffectiveStatus), Count: int(count.Count)})
@@ -385,16 +388,16 @@ func newBoardServedPageViewModel(result domain.BoardResult, state boardPageState
 			HasIssueLink:       true,
 			IssueTitle:         attempt.IssueTitle,
 			Kind:               string(attempt.Kind),
-			SessionLabel:       sessionFieldValue(attempt.SessionLabel),
-			SessionInstanceKey: sessionFieldValue(attempt.SessionInstanceKey),
-			SessionClientName:  sessionFieldValue(attempt.SessionClientName),
-			SessionModel:       sessionFieldValue(attempt.SessionModel),
-			SessionWorktree:    sessionFieldValue(attempt.SessionWorktree),
+			SessionLabel:       sessionFieldValue(attempt.SessionLabel, ui),
+			SessionInstanceKey: sessionFieldValue(attempt.SessionInstanceKey, ui),
+			SessionClientName:  sessionFieldValue(attempt.SessionClientName, ui),
+			SessionModel:       sessionFieldValue(attempt.SessionModel, ui),
+			SessionWorktree:    sessionFieldValue(attempt.SessionWorktree, ui),
 			StartedAt:          attempt.StartedAt.Format(time.RFC3339),
 			LeaseExpiresAt:     attempt.LeaseExpiresAt.Format(time.RFC3339),
 			Reservations:       reservations,
 			HasReservations:    len(reservations) > 0,
-			GateProgress:       boardGateProgressText(gates, hasGates),
+			GateProgress:       boardGateProgressText(gates, hasGates, ui),
 			GateUnmet:          boardGateUnmetLines(gates),
 			HasGateUnmet:       len(gates.Unmet) > 0,
 		})
@@ -445,6 +448,7 @@ func newBoardServedPageViewModel(result domain.BoardResult, state boardPageState
 }
 
 func newIssueDetailPageViewModel(detail domain.IssueDetail, csrfToken string, notice string, errorCode string) issueDetailPageViewModel {
+	ui := boardUIStringsZHCN()
 	identifier := detail.Issue.DisplayID
 	if identifier == "" {
 		identifier = detail.Issue.ID
@@ -468,13 +472,13 @@ func newIssueDetailPageViewModel(detail domain.IssueDetail, csrfToken string, no
 		BoardRoute:         "/issues/" + identifier,
 		ReturnHref:         "/",
 		IssueHeading:       detail.Issue.DisplayID,
-		StatusLine:         buildIssueStatusLine(detail),
-		UI:                 boardUIStringsZHCN(),
+		StatusLine:         buildIssueStatusLine(detail, ui),
+		UI:                 ui,
 		Metadata:           []issueDetailMetadataViewModel{},
 		Labels:             make([]string, 0, len(detail.Issue.Labels)),
-		Description:        issueDetailTextSectionViewModel{Heading: "任务说明", EmptyMessage: "未提供任务说明"},
-		AcceptanceCriteria: issueDetailTextSectionViewModel{Heading: "验收标准", EmptyMessage: "未提供验收标准"},
-		BlockedReason:      issueDetailTextSectionViewModel{Heading: "阻塞原因", EmptyMessage: "未提供阻塞原因"},
+		Description:        issueDetailTextSectionViewModel{Heading: ui.FieldDescription, EmptyMessage: ui.NoDescription},
+		AcceptanceCriteria: issueDetailTextSectionViewModel{Heading: ui.FieldAcceptanceCriteria, EmptyMessage: ui.NoAcceptanceCriteria},
+		BlockedReason:      issueDetailTextSectionViewModel{Heading: ui.BlockedReasonCol, EmptyMessage: ui.NoBlockedReason},
 		Style:              template.CSS(boardHTMLStyle),
 		LiveRefreshScript:  template.JS(boardLiveRefreshScript),
 	}
@@ -485,14 +489,14 @@ func newIssueDetailPageViewModel(detail domain.IssueDetail, csrfToken string, no
 		vm.IssueHeading = vm.IssueHeading + " — " + strings.TrimSpace(detail.Issue.Title)
 	}
 	vm.Metadata = append(vm.Metadata,
-		issueDetailMetadataViewModel{Label: "版本", Value: stringFromInt(int(detail.Issue.Version))},
-		issueDetailMetadataViewModel{Label: "创建时间", Value: formatIssueDetailTimestamp(detail.Issue.CreatedAt)},
-		issueDetailMetadataViewModel{Label: "更新时间", Value: formatIssueDetailTimestamp(detail.Issue.UpdatedAt)},
+		issueDetailMetadataViewModel{Label: ui.VersionLabel, Value: stringFromInt(int(detail.Issue.Version))},
+		issueDetailMetadataViewModel{Label: ui.CreatedLabel, Value: formatIssueDetailTimestamp(detail.Issue.CreatedAt)},
+		issueDetailMetadataViewModel{Label: ui.UpdatedLabel, Value: formatIssueDetailTimestamp(detail.Issue.UpdatedAt)},
 	)
 	if detail.Issue.ArchivedAt != nil {
-		vm.Metadata = append(vm.Metadata, issueDetailMetadataViewModel{Label: "归档时间", Value: formatIssueDetailTimestamp(*detail.Issue.ArchivedAt)})
+		vm.Metadata = append(vm.Metadata, issueDetailMetadataViewModel{Label: ui.ArchivedLabel, Value: formatIssueDetailTimestamp(*detail.Issue.ArchivedAt)})
 	} else {
-		vm.Metadata = append(vm.Metadata, issueDetailMetadataViewModel{Label: "归档时间", Value: "未归档"})
+		vm.Metadata = append(vm.Metadata, issueDetailMetadataViewModel{Label: ui.ArchivedLabel, Value: ui.NotArchived})
 	}
 	for _, label := range detail.Issue.Labels {
 		vm.Labels = append(vm.Labels, label.Name)
@@ -567,7 +571,7 @@ func newIssueDetailPageViewModel(detail domain.IssueDetail, csrfToken string, no
 	}
 	vm.HasReservations = len(vm.Reservations) > 0
 	vm.HasMoreReservations = detail.HasMoreReservations
-	vm.Gates = newIssueDetailGatesViewModel(detail.Gates)
+	vm.Gates = newIssueDetailGatesViewModel(detail.Gates, ui)
 	return vm
 }
 
@@ -584,14 +588,14 @@ func boardGatesByAttempt(rows []domain.AttemptGateProgress) map[string]domain.Wo
 
 // boardGateProgressText renders gate progress as text rather than a
 // color-only indicator, so the state is perceivable without vision.
-func boardGateProgressText(summary domain.WorkContextGateSummary, hasSummary bool) string {
+func boardGateProgressText(summary domain.WorkContextGateSummary, hasSummary bool, ui BoardUIStrings) string {
 	if !hasSummary {
-		return "—"
+		return ui.GateDash
 	}
 	if summary.RequirementCount == 0 {
-		return "无需关卡"
+		return ui.GateNoRequirement
 	}
-	return strconv.FormatInt(summary.SatisfiedCount, 10) + "/" + strconv.FormatInt(summary.RequirementCount, 10) + " 已满足"
+	return fmt.Sprintf(ui.GateProgressFormat, summary.SatisfiedCount, summary.RequirementCount)
 }
 
 func boardGateUnmetLines(summary domain.WorkContextGateSummary) []string {
@@ -602,19 +606,19 @@ func boardGateUnmetLines(summary domain.WorkContextGateSummary) []string {
 	return lines
 }
 
-func newIssueDetailGatesViewModel(summary domain.WorkContextGateSummary) issueDetailGatesViewModel {
+func newIssueDetailGatesViewModel(summary domain.WorkContextGateSummary, ui BoardUIStrings) issueDetailGatesViewModel {
 	vm := issueDetailGatesViewModel{}
 	if summary.RequirementCount == 0 {
 		vm.NoneApply = true
-		vm.StatusLine = "该任务无需通过工作流关卡"
+		vm.StatusLine = ui.GatesNoneApply
 		return vm
 	}
-	source := "实时策略"
+	source := ui.GateSourceLive
 	if summary.SnapshotFingerprint != nil {
-		source = "执行快照（指纹 " + *summary.SnapshotFingerprint + "）"
+		source = fmt.Sprintf(ui.GateSourceSnapshotFmt, *summary.SnapshotFingerprint)
 	}
-	vm.StatusLine = "在 " + string(summary.Point) + " 节点评估（基于 " + source + "）：" +
-		strconv.FormatInt(summary.SatisfiedCount, 10) + "/" + strconv.FormatInt(summary.RequirementCount, 10) + " 个条件满足"
+	vm.StatusLine = fmt.Sprintf(ui.GateStatusLineFormat,
+		string(summary.Point), source, summary.SatisfiedCount, summary.RequirementCount)
 	vm.Satisfied = len(summary.Unmet) == 0
 	vm.Unmet = make([]issueDetailGateUnmetViewModel, 0, len(summary.Unmet))
 	for index, unmet := range summary.Unmet {
@@ -632,8 +636,12 @@ func newIssueDetailGatesViewModel(summary domain.WorkContextGateSummary) issueDe
 	return vm
 }
 
-func buildIssueStatusLine(detail domain.IssueDetail) string {
-	return "存储状态：" + string(detail.Issue.Status) + " · 有效状态：" + string(EffectiveStatusForIssue(detail)) + " · 类型：" + string(detail.Issue.Type) + " · 优先级：" + string(detail.Issue.Priority)
+func buildIssueStatusLine(detail domain.IssueDetail, ui BoardUIStrings) string {
+	return fmt.Sprintf(ui.StatusLineFormat,
+		string(detail.Issue.Status),
+		string(EffectiveStatusForIssue(detail)),
+		string(detail.Issue.Type),
+		string(detail.Issue.Priority))
 }
 
 // boardReservationsByAttempt groups active reservations by their owning
@@ -675,12 +683,12 @@ func blockedReasonValue(reason *string) string {
 // sessionFieldValue renders one optional session attribution field for the
 // board. A missing, absent session, or blank value degrades to an em dash so
 // the row stays readable instead of rendering an empty cell or failing.
-func sessionFieldValue(value *string) string {
+func sessionFieldValue(value *string, ui BoardUIStrings) string {
 	if value == nil {
-		return "—"
+		return ui.EmDash
 	}
 	if strings.TrimSpace(*value) == "" {
-		return "—"
+		return ui.EmDash
 	}
 	return *value
 }
@@ -689,12 +697,14 @@ func stringFromInt(value int) string {
 	return strconv.Itoa(value)
 }
 
-func buildPlanningGraphSummary(graph domain.GraphResult) string {
-	truncatedNote := ""
+func buildPlanningGraphSummary(graph domain.GraphResult, ui BoardUIStrings) string {
+	summary := fmt.Sprintf(ui.GraphSummaryFormat,
+		graph.Summary.NodeCount, graph.Summary.EdgeCount,
+		graph.Summary.EntryPointCount, graph.Summary.BlockingNodeCount)
 	if graph.Truncated {
-		truncatedNote = "（已截断）"
+		summary += ui.GraphTruncated
 	}
-	return strconv.Itoa(graph.Summary.NodeCount) + " 个节点，" + strconv.Itoa(graph.Summary.EdgeCount) + " 条边，" + strconv.Itoa(graph.Summary.EntryPointCount) + " 个入口点，" + strconv.Itoa(graph.Summary.BlockingNodeCount) + " 个阻塞节点" + truncatedNote + "。"
+	return summary + ui.GraphSummarySuffix
 }
 
 func ptrString(value *string) string {
@@ -813,10 +823,10 @@ type boardWorkflowUnprojectedViewModel struct {
 // for the offline HTML snapshot, whose contract is to be fully self-contained:
 // it serves no routes, so an /issues/ link would be dead there. The served
 // board passes true and renders each card as a link to its issue page.
-func newBoardWorkflowViewModel(workflow domain.BoardWorkflowProjection, linkIssues bool, writesEnabled bool, csrfToken string) boardWorkflowViewModel {
+func newBoardWorkflowViewModel(workflow domain.BoardWorkflowProjection, linkIssues bool, writesEnabled bool, csrfToken string, ui BoardUIStrings) boardWorkflowViewModel {
 	cardsByColumn := make(map[domain.BoardWorkflowColumn][]boardWorkflowCardViewModel, len(workflow.Columns))
 	for _, card := range workflow.Cards {
-		cardsByColumn[card.Column] = append(cardsByColumn[card.Column], newBoardWorkflowCardViewModel(card, linkIssues, writesEnabled))
+		cardsByColumn[card.Column] = append(cardsByColumn[card.Column], newBoardWorkflowCardViewModel(card, linkIssues, writesEnabled, ui))
 	}
 	vm := boardWorkflowViewModel{
 		CSRFToken:             csrfToken,
@@ -866,7 +876,7 @@ func newBoardWorkflowViewModel(workflow domain.BoardWorkflowProjection, linkIssu
 	return vm
 }
 
-func newBoardWorkflowCardViewModel(card domain.BoardWorkflowCard, linkIssues bool, writesEnabled bool) boardWorkflowCardViewModel {
+func newBoardWorkflowCardViewModel(card domain.BoardWorkflowCard, linkIssues bool, writesEnabled bool, ui BoardUIStrings) boardWorkflowCardViewModel {
 	label := card.IssueDisplayID
 	if strings.TrimSpace(label) == "" {
 		label = card.IssueID
@@ -893,19 +903,19 @@ func newBoardWorkflowCardViewModel(card domain.BoardWorkflowCard, linkIssues boo
 		vm.HasAttempt = true
 		switch card.AttemptKind {
 		case domain.AttemptKindWork:
-			vm.ExecutorRole = "开发者"
+			vm.ExecutorRole = ui.RoleDeveloper
 		case domain.AttemptKindReview:
-			vm.ExecutorRole = "验证者"
+			vm.ExecutorRole = ui.RoleVerifier
 		default:
 			// A kind this board does not know is still an executor; naming
 			// the role would be a guess, so it degrades to the neutral term.
-			vm.ExecutorRole = "执行者"
+			vm.ExecutorRole = ui.RoleExecutor
 		}
-		vm.ExecutorLabel = workflowFieldValue(card.ExecutorLabel)
-		vm.ExecutorInstanceKey = workflowFieldValue(card.ExecutorInstanceKey)
-		vm.ExecutorClient = workflowFieldValue(card.ExecutorClient)
-		vm.ExecutorModel = workflowFieldValue(card.ExecutorModel)
-		vm.ExecutorWorktree = workflowFieldValue(card.ExecutorWorktree)
+		vm.ExecutorLabel = workflowFieldValue(card.ExecutorLabel, ui)
+		vm.ExecutorInstanceKey = workflowFieldValue(card.ExecutorInstanceKey, ui)
+		vm.ExecutorClient = workflowFieldValue(card.ExecutorClient, ui)
+		vm.ExecutorModel = workflowFieldValue(card.ExecutorModel, ui)
+		vm.ExecutorWorktree = workflowFieldValue(card.ExecutorWorktree, ui)
 		if card.LeaseExpiresAt != nil && !card.LeaseExpiresAt.IsZero() {
 			vm.HasLeaseExpiry = true
 			vm.LeaseExpiresAt = card.LeaseExpiresAt.UTC().Format(time.RFC3339)
@@ -946,9 +956,9 @@ func newBoardWorkflowCardViewModel(card domain.BoardWorkflowCard, linkIssues boo
 // workflowFieldValue renders one optional workflow field, degrading to an em
 // dash rather than an empty cell so a reader can tell "not recorded" from
 // "recorded as blank".
-func workflowFieldValue(value *string) string {
+func workflowFieldValue(value *string, ui BoardUIStrings) string {
 	if value == nil || strings.TrimSpace(*value) == "" {
-		return "—"
+		return ui.EmDash
 	}
 	return *value
 }
